@@ -51,15 +51,40 @@ float sdRoundedBox(float2 pt, float2 halfSize, float radius) {
     return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-// Quadratic Bezier distance (3-segment polyline approximation for crisp smooth neon ribbons)
-float sdQuadArc(float2 pt, float2 a, float2 ctrl, float2 b) {
-    float2 p0 = a;
-    float2 p1 = 0.25 * a + 0.50 * ctrl + 0.25 * b;
-    float2 p2 = b;
-    float2 m0 = 0.5625 * a + 0.375 * ctrl + 0.0625 * b;
-    float2 m2 = 0.0625 * a + 0.375 * ctrl + 0.5625 * b;
-    float d = min(sdSegment(pt, p0, m0), sdSegment(pt, m0, p1));
-    return min(d, min(sdSegment(pt, p1, m2), sdSegment(pt, m2, p2)));
+float sdSegSq(float2 pt, float2 a, float2 b) {
+    float2 pa = pt - a;
+    float2 ba = b - a;
+    float h = saturate(dot(pa, ba) / max(1e-6, dot(ba, ba)));
+    float2 d = pa - ba * h;
+    return dot(d, d);
+}
+
+// 2-segment quadratic midpoint curve returning squared distance (avoid per-segment sqrt)
+float sdArc2Sq(float2 pt, float2 a, float2 ctrl, float2 b) {
+    float2 mid = 0.25 * a + 0.50 * ctrl + 0.25 * b;
+    return min(sdSegSq(pt, a, mid), sdSegSq(pt, mid, b));
+}
+
+void evalCycleRibbonSq(float2 b, out float dMainSq, out float dFineSq) {
+    float dRearSq = min(
+        sdArc2Sq(b, float2(-0.530, 0.495), float2(-0.350, 0.518), float2(-0.295, 0.485)),
+        sdArc2Sq(b, float2(-0.295, 0.485), float2(-0.375, 0.395), float2(-0.285, 0.255))
+    );
+    float dFlankSq = min(
+        sdArc2Sq(b, float2(-0.145, 0.335), float2(0.080, 0.355), float2(0.255, 0.330)),
+        sdArc2Sq(b, float2(0.255, 0.330), float2(0.330, 0.220), float2(0.295, 0.078))
+    );
+    float dSpineSq = sdArc2Sq(b, float2(-0.295, 0.485), float2(-0.140, 0.412), float2(0.145, 0.502));
+    float dArmSq = sdArc2Sq(b, float2(0.145, 0.502), float2(0.245, 0.405), float2(0.312, 0.285));
+    dMainSq = min(dRearSq, min(dFlankSq, min(dSpineSq, dArmSq)));
+
+    float dNoseSq = min(
+        sdArc2Sq(b, float2(0.775, 0.405), float2(0.848, 0.245), float2(0.812, 0.125)),
+        sdArc2Sq(b, float2(-0.790, 0.390), float2(-0.822, 0.305), float2(-0.810, 0.220))
+    );
+    float dLegSq = sdArc2Sq(b, float2(-0.145, 0.335), float2(-0.032, 0.286), float2(-0.265, 0.214));
+    float dVisorSq = sdSegSq(b, float2(0.258, 0.544), float2(0.324, 0.528));
+    dFineSq = min(dNoseSq, min(dLegSq, dVisorSq));
 }
 
 float3 renderStarfield(float2 skyUv, float yNorm, float time) {
@@ -198,22 +223,24 @@ void evalSidePalmAndLamp(
         float trunkMask = 1.0 - ss(trunkHalfW - pxScale * 0.9, trunkHalfW + pxScale * 0.9, dTrunk);
 
         float2 dp = p - pCrown;
-        float r = length(dp);
+        float rSq = dot(dp, dp);
         float frondMask = 0.0;
+        float maxCrown = crownR * 1.35;
 
-        if (r < crownR * 1.35) {
+        if (rSq < maxCrown * maxCrown) {
+            float r = sqrt(rSq);
             [loop]
-            for (int f = 0; f < 7; f++) {
-                float ang = -2.25 + float(f) * 0.75 + (hash11(seed * 7.1 + float(f)) - 0.5) * 0.14;
+            for (int f = 0; f < 5; f++) {
+                float ang = -1.90 + float(f) * 0.95 + (hash11(seed * 7.1 + float(f)) - 0.5) * 0.14;
                 float2 dir = float2(sin(ang), cos(ang));
-                float fLen = crownR * lerp(0.82, 1.15, hash11(seed * 3.3 + float(f)));
+                float fLen = crownR * lerp(0.84, 1.14, hash11(seed * 3.3 + float(f)));
 
                 float proj = clamp(dot(dp, dir) / max(1e-4, fLen), 0.0, 1.0);
                 float2 frondPt = dir * (fLen * proj) + float2(0.0, -0.58 * proj * proj * crownR + 0.26 * proj * crownR);
                 float dArc = length(dp - frondPt);
 
-                float leaflet = 0.0068 * (treeH / 0.23) * abs(sin(proj * 72.0)) * ss(0.06, 0.22, proj) * (1.0 - proj * 0.92);
-                float bladeW = (0.0125 * (treeH / 0.23) * (1.0 - proj * 0.92)) + leaflet;
+                float leaflet = 0.0072 * (treeH / 0.23) * abs(sin(proj * 68.0)) * ss(0.06, 0.22, proj) * (1.0 - proj * 0.92);
+                float bladeW = (0.0135 * (treeH / 0.23) * (1.0 - proj * 0.92)) + leaflet;
                 float fHit = 1.0 - ss(bladeW - pxScale * 0.9, bladeW + pxScale * 0.9, dArc);
                 frondMask = max(frondMask, fHit);
             }
@@ -394,24 +421,24 @@ void evalLightCycleAndRider(
     if (bodyMask > 0.001) {
         float3 bodyCol = float3(0.012, 0.018, 0.042);
 
-        // Unified gunmetal metallic specular rim along bike curves & rider helmet/back/arm contour
+        // Unified gunmetal metallic specular rim along bike curves & rider helmet/back/arm contour (dot^2 avoids sqrt)
         float crownRim = ss(0.022, 0.0, abs(dBodyFull)) * ss(0.28, 0.58, b.y);
-        float domeShine = exp(-length((b - float2(0.56, 0.48)) * float2(3.5, 9.0))) * 0.28;
-        float tailShine = exp(-length((b - float2(-0.56, 0.49)) * float2(4.0, 12.0))) * 0.24;
-        float helmShine = exp(-length((b - float2(0.24, 0.56)) * float2(7.0, 14.0))) * 0.22;
+        float2 vDome = (b - float2(0.56, 0.48)) * float2(3.5, 9.0);
+        float2 vTail = (b - float2(-0.56, 0.49)) * float2(4.0, 12.0);
+        float2 vHelm = (b - float2(0.24, 0.56)) * float2(7.0, 14.0);
+        float domeShine = exp(-dot(vDome, vDome) * 0.9) * 0.28;
+        float tailShine = exp(-dot(vTail, vTail) * 0.9) * 0.24;
+        float helmShine = exp(-dot(vHelm, vHelm) * 0.9) * 0.22;
         bodyCol += float3(0.18, 0.28, 0.42) * (crownRim * 0.68 + domeShine + tailShine + helmShine);
 
-        // Electric-cyan bounce reflection along carved hip skirt & tucked rider knee facing light rings
-        float skirtGlow = exp(-length((b - float2(-0.27, 0.25)) * float2(7.0, 8.5)));
+        float2 vSkirt = (b - float2(-0.27, 0.25)) * float2(7.0, 8.5);
+        float skirtGlow = exp(-dot(vSkirt, vSkirt) * 1.1);
         float skirtRib = 0.70 + 0.30 * sin(b.x * 38.0 + b.y * 24.0);
         bodyCol += float3(0.04, 0.68, 0.96) * skirtGlow * skirtRib * 0.34;
 
-        // Subtle warm sunset backlight kiss on rear tail shell
         bodyCol += float3(0.42, 0.08, 0.34) * ss(-0.62, -0.82, b.x) * 0.20;
 
-        col = isReflection > 0.5
-            ? lerp(col, col * 0.55 + bodyCol * 0.45, bodyMask * reflAtten * 0.8)
-            : lerp(col, bodyCol, bodyMask);
+        col = lerp(col, bodyCol, bodyMask);
     }
 
     // Layer C: Angled Recessed Core Engine / Circuit Bay (intricate glowing conduits inside bevelled housing!)
@@ -430,13 +457,11 @@ void evalLightCycleAndRider(
         float corePulse = exp(-dot(tp * float2(0.9, 1.05), tp * float2(0.9, 1.05)) * 1.15);
         float fins = conduitBars * circuitGap * (0.75 + 0.25 * sin(tp.x * 12.0 - gridTime * 7.5));
         float3 finGlow = float3(0.06, 0.82, 1.0) * fins * 0.92 + float3(0.85, 0.99, 1.0) * fins * corePulse * 0.78;
-        if (isReflection < 0.5) {
-            col = lerp(col, bayBg, turbMask);
-        }
-        col += finGlow * turbMask * reflAtten;
+        col = lerp(col, bayBg, turbMask);
+        col += finGlow * turbMask;
     }
-    col += float3(0.10, 0.45, 0.65) * turbRim * 0.45 * reflAtten;
-    col += float3(0.0, 0.82, 1.0) * exp(-max(0.0, dTurb) * 18.0) * 0.44 * reflAtten;
+    col += float3(0.10, 0.45, 0.65) * turbRim * 0.45;
+    col += float3(0.0, 0.82, 1.0) * exp(-max(0.0, dTurb) * 18.0) * 0.44;
 
     // Layer D: Unified Neon Light Ribbons — Bike Fairing + Integrated Rider Circuit Flow + Wheel Light Rings
     float2 qRear = b - wRear;
@@ -453,48 +478,66 @@ void evalLightCycleAndRider(
     float frontCore = (1.0 - ss(0.015, 0.015 + localPx * 2.0, dFrontRing)) * spinFront;
     float frontGlow = exp(-dFrontRing * 26.0) * spinFront;
 
-    // 1) Rear cantilevered canopy C-arch
-    float dRibbonRear = min(
-        sdQuadArc(b, float2(-0.530, 0.495), float2(-0.350, 0.518), float2(-0.295, 0.485)),
-        sdQuadArc(b, float2(-0.295, 0.485), float2(-0.375, 0.395), float2(-0.285, 0.255))
-    );
-    // 2) Tank-waist to front wheel fork sweep
-    float dRibbonFlank = min(
-        sdQuadArc(b, float2(-0.145, 0.335), float2(0.080, 0.355), float2(0.255, 0.330)),
-        sdQuadArc(b, float2(0.255, 0.330), float2(0.330, 0.220), float2(0.295, 0.078))
-    );
-    // 3) Rider circuits flowing seamlessly FROM rear canopy (-0.295, 0.485) -> back/shoulder -> arm -> INTO fork ribbon (0.312, 0.305)
-    float dRiderSpineFlow = sdQuadArc(b, float2(-0.295, 0.485), float2(-0.140, 0.412), float2(0.145, 0.502));
-    float dRiderArmFlow = sdQuadArc(b, float2(0.145, 0.502), float2(0.245, 0.405), float2(0.312, 0.285));
-    // 4) Fine secondary bike/rider tie-ins: front/rear nose contours, knee-to-footpeg link, and helmet visor slit
-    float dRibbonNose = min(
-        sdQuadArc(b, float2(0.775, 0.405), float2(0.848, 0.245), float2(0.812, 0.125)),
-        sdQuadArc(b, float2(-0.790, 0.390), float2(-0.822, 0.305), float2(-0.810, 0.220))
-    );
-    float dRiderLegFlow = sdQuadArc(b, float2(-0.145, 0.335), float2(-0.032, 0.286), float2(-0.265, 0.214));
-    float dVisorSlit = sdSegment(b, float2(0.258, 0.544), float2(0.324, 0.528));
+    float dMainSq, dFineSq;
+    evalCycleRibbonSq(b, dMainSq, dFineSq);
+    float dMainRibbons = sqrt(dMainSq);
+    float dFineRibbons = sqrt(dFineSq);
 
     float3 neonCyan = float3(0.06, 0.92, 1.0);
     float3 coreWhite = float3(0.88, 0.99, 1.0);
 
-    col += neonCyan * (rearGlow + frontGlow) * 0.95 * reflAtten;
-    col += coreWhite * max(rearCore, frontCore) * 0.96 * reflAtten;
+    col += neonCyan * (rearGlow + frontGlow) * 0.95;
+    col += coreWhite * max(rearCore, frontCore) * 0.96;
 
-    float dMainRibbons = min(dRibbonRear, min(dRibbonFlank, min(dRiderSpineFlow, dRiderArmFlow)));
     float mainCore = 1.0 - ss(0.0085, 0.0085 + localPx * 2.0, dMainRibbons);
     float mainGlow = exp(-dMainRibbons * 33.0);
-
-    float dFineRibbons = min(dRibbonNose, min(dRiderLegFlow, dVisorSlit));
     float fineCore = 1.0 - ss(0.0038, 0.0038 + localPx * 1.4, dFineRibbons);
     float fineGlow = exp(-dFineRibbons * 50.0);
 
-    col += neonCyan * (mainGlow * 0.88 + fineGlow * 0.62) * reflAtten;
-    col += coreWhite * max(mainCore * 0.92, fineCore * 0.82) * reflAtten;
+    col += neonCyan * (mainGlow * 0.88 + fineGlow * 0.62);
+    col += coreWhite * max(mainCore * 0.92, fineCore * 0.82);
 
-    // Forward headlight beam with smooth spatial fade inside AABB (zero clipping)
-    float dHead = length((b - float2(0.86, 0.28)) * float2(0.65, 1.8));
+    float2 vHead = (b - float2(0.86, 0.28)) * float2(0.65, 1.8);
     float headBound = ss(1.42, 0.80, b.x) * ss(0.56, 0.25, abs(b.y - 0.26));
-    col += float3(0.12, 0.94, 1.0) * exp(-dHead * 5.2) * 0.36 * headBound * reflAtten;
+    col += float3(0.12, 0.94, 1.0) * exp(-dot(vHead, vHead) * 6.8) * 0.36 * headBound;
+}
+
+// Ultra-lean ground reflection pass (only emissive wheel rings, turbine glow & neon ribbons over wet asphalt)
+void evalCycleReflection(
+    float2 p,
+    float2 groundAnchor,
+    float bikeScale,
+    float pxScale,
+    float gridTime,
+    inout float3 col)
+{
+    float invS = 1.0 / bikeScale;
+    float2 b = (p - groundAnchor) * invS;
+    if (b.x < -1.00 || b.x > 1.00 || b.y < 0.0 || b.y > 0.72) {
+        return;
+    }
+
+    float localPx = pxScale * invS;
+    float reflAtten = 0.36 * exp(-b.y * 2.4) * ss(0.72, 0.08, b.y);
+
+    float dRearRing = abs(length(b - float2(-0.56, 0.265)) - 0.214);
+    float dFrontRing = abs(length(b - float2(0.56, 0.260)) - 0.210);
+    float rearGlow = exp(-dRearRing * 26.0);
+    float frontGlow = exp(-dFrontRing * 26.0);
+    float ringCore = max(1.0 - ss(0.015, 0.015 + localPx * 2.0, dRearRing), 1.0 - ss(0.015, 0.015 + localPx * 2.0, dFrontRing));
+
+    float dMainSq, dFineSq;
+    evalCycleRibbonSq(b, dMainSq, dFineSq);
+    float dMain = sqrt(dMainSq);
+    float dFine = sqrt(dFineSq);
+
+    float2 tb = (b - float2(0.015, 0.185)) / float2(0.135, 0.055);
+    float turbGlow = exp(-dot(tb, tb) * 1.4) * (0.65 + 0.35 * sin(tb.y * 9.0));
+
+    float3 neonCyan = float3(0.06, 0.92, 1.0);
+    float3 coreWhite = float3(0.88, 0.99, 1.0);
+    col += neonCyan * ((rearGlow + frontGlow) * 0.90 + exp(-dMain * 33.0) * 0.85 + exp(-dFine * 50.0) * 0.55 + turbGlow * 0.72) * reflAtten;
+    col += coreWhite * max(ringCore * 0.90, 1.0 - ss(0.0085, 0.0085 + localPx * 2.0, dMain)) * reflAtten;
 }
 
 float4 main(PSIn input) : SV_Target {
@@ -565,16 +608,18 @@ float4 main(PSIn input) : SV_Target {
         // 3. Far Slow-Scrolling Megapolis Silhouette (0.055 / 0.105 speed)
         col = renderMegapolis(p, sunCenter, pxScale, col, uTime, uGridTime);
 
-        // 4. Faster Midground Palms & Cyber Streetlights (0.58 speed, 5-10x faster than city)
-        float palmSpacing = 0.48;
-        float palmScrollX = p.x + uGridTime * 0.58;
-        float centerCell = floor(palmScrollX / palmSpacing);
-        [loop]
-        for (int k = -1; k <= 1; k++) {
-            float cellIdx = centerCell + float(k);
-            float cellCenterWorld = (cellIdx + 0.5) * palmSpacing;
-            float baseX = cellCenterWorld - uGridTime * 0.58;
-            evalSidePalmAndLamp(p, baseX, cellIdx, pxScale, uTime, col);
+        // 4. Faster Midground Palms & Cyber Streetlights (0.58 speed, 5-10x faster than city; skip upper sky where p.y > 0.36)
+        if (p.y < 0.36) {
+            float palmSpacing = 0.48;
+            float palmScrollX = p.x + uGridTime * 0.58;
+            float centerCell = floor(palmScrollX / palmSpacing);
+            [loop]
+            for (int k = -1; k <= 1; k++) {
+                float cellIdx = centerCell + float(k);
+                float cellCenterWorld = (cellIdx + 0.5) * palmSpacing;
+                float baseX = cellCenterWorld - uGridTime * 0.58;
+                evalSidePalmAndLamp(p, baseX, cellIdx, pxScale, uTime, col);
+            }
         }
     } else {
         // 5. Glossy Dark Wet Synthwave Highway + Perspective Grid + Sunset Reflection
@@ -634,7 +679,7 @@ float4 main(PSIn input) : SV_Target {
     if (p.y < bikeGround.y) {
         float rippleOff = sin(p.y * 190.0 + uGridTime * 8.0) * 0.0022;
         float2 pRefl = float2(p.x + rippleOff, 2.0 * bikeGround.y - p.y);
-        evalLightCycleAndRider(pRefl, bikeGround, bikeScale, pxScale, uTime, uGridTime, 1.0, col);
+        evalCycleReflection(pRefl, bikeGround, bikeScale, pxScale, uGridTime, col);
     }
 
     // Main hero Light Cycle + Rider

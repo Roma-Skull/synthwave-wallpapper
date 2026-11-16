@@ -29,6 +29,8 @@ namespace NeonHorizonWallpaper
         public IntPtr SceneSrv;
         public uint SwapBufferCount;
         public uint SwapFormat;
+        public uint SceneWidth;
+        public uint SceneHeight;
 
         public void ReleaseTargets()
         {
@@ -36,6 +38,8 @@ namespace NeonHorizonWallpaper
             D3D11Native.SafeRelease(ref SceneSrv);
             D3D11Native.SafeRelease(ref SceneRtv);
             D3D11Native.SafeRelease(ref SceneTexture);
+            SceneWidth = 0;
+            SceneHeight = 0;
         }
 
         public void Dispose()
@@ -610,6 +614,8 @@ namespace NeonHorizonWallpaper
                     return false;
                 }
 
+                surface.SceneWidth = surface.Width;
+                surface.SceneHeight = surface.Height;
                 return CreateOffscreenSceneTarget(surface.Width, surface.Height, out surface.SceneTexture, out surface.SceneRtv, out surface.SceneSrv, out errorMessage);
             }
             finally
@@ -673,12 +679,67 @@ namespace NeonHorizonWallpaper
             return _defaultScenePixelShader;
         }
 
+        private static void ComputeSceneDimensions(uint targetW, uint targetH, string quality, out uint sceneW, out uint sceneH)
+        {
+            float scale = 1.0f;
+            if (string.Equals(quality, "eco", StringComparison.OrdinalIgnoreCase))
+            {
+                scale = 0.60f;
+            }
+            else if (string.Equals(quality, "balanced", StringComparison.OrdinalIgnoreCase))
+            {
+                scale = 0.75f;
+            }
+            else if (!string.Equals(quality, "native", StringComparison.OrdinalIgnoreCase))
+            {
+                // Auto mode: stay 100% native up to ~1440p, dynamically scale Pass 1 on 4K/5K2K (e.g. 5120x2160) while keeping Pass 2 CRT native
+                ulong pixels = (ulong)targetW * targetH;
+                if (pixels > 4000000UL)
+                {
+                    scale = (float)Math.Sqrt(3800000.0 / pixels);
+                    if (scale < 0.60f) scale = 0.60f;
+                    if (scale > 0.78f) scale = 0.78f;
+                }
+            }
+
+            sceneW = Math.Max(64u, (uint)Math.Round(targetW * scale));
+            sceneH = Math.Max(64u, (uint)Math.Round(targetH * scale));
+        }
+
+        private bool EnsureSurfaceSceneTarget(D3D11Surface surface, uint sceneW, uint sceneH)
+        {
+            if (surface.SceneWidth == sceneW && surface.SceneHeight == sceneH && surface.SceneRtv != IntPtr.Zero && surface.SceneSrv != IntPtr.Zero)
+            {
+                return true;
+            }
+
+            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvNull);
+            D3D11Native.ContextOMSetRenderTargets(_context, new IntPtr[] { IntPtr.Zero });
+            D3D11Native.SafeRelease(ref surface.SceneSrv);
+            D3D11Native.SafeRelease(ref surface.SceneRtv);
+            D3D11Native.SafeRelease(ref surface.SceneTexture);
+            surface.SceneWidth = 0;
+            surface.SceneHeight = 0;
+
+            string err;
+            if (!CreateOffscreenSceneTarget(sceneW, sceneH, out surface.SceneTexture, out surface.SceneRtv, out surface.SceneSrv, out err))
+            {
+                Logger.Error("EnsureSurfaceSceneTarget failed: " + err);
+                return false;
+            }
+            surface.SceneWidth = sceneW;
+            surface.SceneHeight = sceneH;
+            return true;
+        }
+
         private void RenderPasses(
             IntPtr sceneRtv,
             IntPtr sceneSrv,
             IntPtr targetRtv,
-            uint width,
-            uint height,
+            uint sceneWidth,
+            uint sceneHeight,
+            uint targetWidth,
+            uint targetHeight,
             uint dpi,
             float sceneTime,
             float gridTime,
@@ -686,8 +747,8 @@ namespace NeonHorizonWallpaper
             AppSettings settings)
         {
             D3D11Native.D3D11_VIEWPORT vp = new D3D11Native.D3D11_VIEWPORT();
-            vp.Width = width;
-            vp.Height = height;
+            vp.Width = sceneWidth;
+            vp.Height = sceneHeight;
             vp.MinDepth = 0.0f;
             vp.MaxDepth = 1.0f;
 
@@ -696,10 +757,10 @@ namespace NeonHorizonWallpaper
             D3D11Native.ContextRSSetViewports(_context, ref vp);
             D3D11Native.ContextVSSetShader(_context, _vertexShader);
 
-            // Pass 1: Active Synthwave scene -> offscreen texture
+            // Pass 1: Active Synthwave scene -> offscreen texture (fullscreen triangle overwrites 100%, no clear needed)
             D3D11Native.SceneConstants sc = new D3D11Native.SceneConstants();
-            sc.ResolutionX = width;
-            sc.ResolutionY = height;
+            sc.ResolutionX = sceneWidth;
+            sc.ResolutionY = sceneHeight;
             sc.Time = sceneTime;
             sc.GridTime = gridTime;
             UpdateConstantBuffer(_sceneConstBuffer, sc);
@@ -707,21 +768,25 @@ namespace NeonHorizonWallpaper
             D3D11Native.ContextPSSetShaderResources(_context, 0, _srvNull);
             _rtvOne[0] = sceneRtv;
             D3D11Native.ContextOMSetRenderTargets(_context, _rtvOne);
-            D3D11Native.ContextClearRenderTargetView(_context, sceneRtv, _clearColor);
             D3D11Native.ContextPSSetShader(_context, ResolveScenePixelShader(settings.Scene));
             _cbOne[0] = _sceneConstBuffer;
             D3D11Native.ContextPSSetConstantBuffers(_context, 0, _cbOne);
             D3D11Native.ContextDraw(_context, 3, 0);
 
-            // Pass 2: CRT/VHS post-processing -> final target
+            // Pass 2: CRT/VHS post-processing at native target resolution (wider scanline period on 4K/5K displays)
+            vp.Width = targetWidth;
+            vp.Height = targetHeight;
+            D3D11Native.ContextRSSetViewports(_context, ref vp);
+
             float dpr = Math.Max(0.5f, dpi / 96.0f);
-            int physPeriod = Math.Max(4, (int)Math.Round(3.2f * dpr));
+            float effectiveScale = Math.Max(dpr, targetHeight / 1080.0f);
+            int physPeriod = Math.Max(4, (int)Math.Round(4.5f * effectiveScale));
             if ((physPeriod & 1) != 0) physPeriod += 1;
 
             bool active = settings.Enabled;
             D3D11Native.CrtConstants cc = new D3D11Native.CrtConstants();
-            cc.ResolutionX = width;
-            cc.ResolutionY = height;
+            cc.ResolutionX = targetWidth;
+            cc.ResolutionY = targetHeight;
             cc.Time = crtTime;
             cc.Curvature = active ? settings.Curvature / 100.0f : 0.0f;
             cc.Scanlines = active ? settings.Scanlines / 100.0f : 0.0f;
@@ -735,7 +800,6 @@ namespace NeonHorizonWallpaper
 
             _rtvOne[0] = targetRtv;
             D3D11Native.ContextOMSetRenderTargets(_context, _rtvOne);
-            D3D11Native.ContextClearRenderTargetView(_context, targetRtv, _clearColor);
             D3D11Native.ContextPSSetShader(_context, _crtPixelShader);
             _cbOne[0] = _crtConstBuffer;
             D3D11Native.ContextPSSetConstantBuffers(_context, 0, _cbOne);
@@ -760,10 +824,16 @@ namespace NeonHorizonWallpaper
         {
             if (!IsInitialized || surface == null || surface.SwapChain == IntPtr.Zero) return -1;
 
+            uint sceneW, sceneH;
+            ComputeSceneDimensions(surface.Width, surface.Height, settings.RenderQuality, out sceneW, out sceneH);
+            if (!EnsureSurfaceSceneTarget(surface, sceneW, sceneH)) return -1;
+
             RenderPasses(
                 surface.SceneRtv,
                 surface.SceneSrv,
                 surface.BackBufferRtv,
+                sceneW,
+                sceneH,
                 surface.Width,
                 surface.Height,
                 dpi,
@@ -790,6 +860,8 @@ namespace NeonHorizonWallpaper
 
             uint w = (uint)Math.Max(32, width);
             uint h = (uint)Math.Max(32, height);
+            uint sceneW, sceneH;
+            ComputeSceneDimensions(w, h, settings.RenderQuality, out sceneW, out sceneH);
             IntPtr sceneTex = IntPtr.Zero;
             IntPtr sceneRtv = IntPtr.Zero;
             IntPtr sceneSrv = IntPtr.Zero;
@@ -799,7 +871,7 @@ namespace NeonHorizonWallpaper
 
             try
             {
-                if (!CreateOffscreenSceneTarget(w, h, out sceneTex, out sceneRtv, out sceneSrv, out errorMessage))
+                if (!CreateOffscreenSceneTarget(sceneW, sceneH, out sceneTex, out sceneRtv, out sceneSrv, out errorMessage))
                 {
                     return null;
                 }
@@ -826,7 +898,7 @@ namespace NeonHorizonWallpaper
                 hr = D3D11Native.DeviceCreateTexture2D(_device, ref td, out stagingTex);
                 if (hr < 0) { errorMessage = string.Format("CreateTexture2D(Staging) failed: 0x{0:X8}", hr); return null; }
 
-                RenderPasses(sceneRtv, sceneSrv, finalRtv, w, h, dpi, sceneTime, gridTime, crtTime, settings);
+                RenderPasses(sceneRtv, sceneSrv, finalRtv, sceneW, sceneH, w, h, dpi, sceneTime, gridTime, crtTime, settings);
                 D3D11Native.ContextCopyResource(_context, stagingTex, finalTex);
 
                 D3D11Native.D3D11_MAPPED_SUBRESOURCE mapped;

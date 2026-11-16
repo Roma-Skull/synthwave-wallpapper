@@ -182,21 +182,23 @@ void evalPalmAndLamp(
     float trunkMask = 1.0 - ss(trunkHalfW - pxScale * 0.8, trunkHalfW + pxScale * 0.8, dTrunk);
 
     float2 dp = p - pCrown;
-    float r = length(dp);
+    float rSq = dot(dp, dp);
+    float maxCrown = crownR * 1.35;
     float frondMask = 0.0;
 
-    if (r < crownR * 1.35) {
+    if (rSq < maxCrown * maxCrown) {
+        float r = sqrt(rSq);
         [loop]
-        for (int f = 0; f < 7; f++) {
-            float ang = -2.25 + float(f) * 0.75 + (hash11(seed * 7.1 + float(f)) - 0.5) * 0.14;
+        for (int f = 0; f < 5; f++) {
+            float ang = -1.90 + float(f) * 0.95 + (hash11(seed * 7.1 + float(f)) - 0.5) * 0.14;
             float2 dir = float2(sin(ang), cos(ang));
-            float fLen = crownR * lerp(0.82, 1.15, hash11(seed * 3.3 + float(f)));
+            float fLen = crownR * lerp(0.84, 1.14, hash11(seed * 3.3 + float(f)));
 
             float proj = clamp(dot(dp, dir) / max(1e-4, fLen), 0.0, 1.0);
             float2 frondPt = dir * (fLen * proj) + float2(0.0, -0.58 * proj * proj * crownR + 0.26 * proj * crownR);
             float dArc = length(dp - frondPt);
 
-            float leaflet = 0.0075 * invZ * abs(sin(proj * 74.0)) * ss(0.06, 0.22, proj) * (1.0 - proj * 0.92);
+            float leaflet = 0.0075 * invZ * abs(sin(proj * 68.0)) * ss(0.06, 0.22, proj) * (1.0 - proj * 0.92);
             float bladeW = (0.0135 * invZ * (1.0 - proj * 0.92)) + leaflet;
             float fHit = 1.0 - ss(bladeW - pxScale * 0.8, bladeW + pxScale * 0.8, dArc);
             frondMask = max(frondMask, fHit);
@@ -269,11 +271,12 @@ void evalOncomingVehicle(
     float localPx = pxScale / invZ;
     float distFade = ss(0.04, 0.22, invZ);
 
-    // 1. Contact shadow & oncoming headlight cone wash on wet asphalt
-    float shadowD = length((q - float2(0.0, 0.0)) * float2(1.0 / (isTruck > 0.5 ? 0.105 : 0.085), 6.5));
-    col *= 1.0 - exp(-shadowD * shadowD * 8.0) * 0.72;
+    // 1. Contact shadow & oncoming headlight cone wash on wet asphalt (sqrt-free via dot)
+    float2 shadowV = q * float2(1.0 / (isTruck > 0.5 ? 0.105 : 0.085), 6.5);
+    col *= 1.0 - exp(-dot(shadowV, shadowV) * 8.0) * 0.72;
 
-    float beamWash = exp(-length((q - float2(0.0, -0.015)) * float2(12.0, 26.0)) * 1.35);
+    float2 beamV = (q - float2(0.0, -0.015)) * float2(12.0, 26.0);
+    float beamWash = exp(-dot(beamV, beamV) * 0.95);
     float3 headHue = (isTruck > 0.5 || rnd.w > 0.45) ? float3(0.85, 0.96, 1.0) : float3(1.0, 0.88, 0.65);
     col += headHue * beamWash * 0.30 * distFade;
 
@@ -412,9 +415,9 @@ float3 renderHeroCar(float2 p, float pxScale, float3 bgCol, float time) {
     float localPx = pxScale * invS;
     float3 col = bgCol;
 
-    // 1. Ground contact shadow + cyan underglow + red taillight reflection
-    float shadowDist = length((q - float2(0.0, -0.056)) * float2(1.0, 3.8));
-    float contactShadow = exp(-shadowDist * shadowDist * 32.0);
+    // 1. Ground contact shadow + cyan underglow + red taillight reflection (sqrt-free via dot)
+    float2 shadowV = (q - float2(0.0, -0.056)) * float2(1.0, 3.8);
+    float contactShadow = exp(-dot(shadowV, shadowV) * 32.0);
     col *= 1.0 - contactShadow * 0.82;
 
     float underGlow = exp(-length((q - float2(0.0, -0.056)) * float2(1.0, 4.5)) * 12.0);
@@ -696,12 +699,14 @@ float4 main(PSIn input) : SV_Target {
     for (int k = 12; k >= 0; k--) {
         float zPalm = zMinPalm + (float(k) + (1.0 - zFrac)) * stepZ;
 
-        // Draw any oncoming vehicles between prevZ and zPalm (back-to-front)
-        [loop]
-        for (int v = 8; v >= 0; v--) {
-            float zVeh = zMinVeh + (float(v) + (1.0 - tFrac)) * trafficStep;
-            if (zVeh < prevZ && zVeh >= zPalm) {
-                evalOncomingVehicle(p, baseVehIdx + float(v), zVeh, pxScale, uTime, col);
+        // Draw any oncoming vehicles between prevZ and zPalm (oncoming traffic always sits below p.y = 0)
+        if (p.y < 0.005) {
+            [loop]
+            for (int v = 8; v >= 0; v--) {
+                float zVeh = zMinVeh + (float(v) + (1.0 - tFrac)) * trafficStep;
+                if (zVeh < prevZ && zVeh >= zPalm) {
+                    evalOncomingVehicle(p, baseVehIdx + float(v), zVeh, pxScale, uTime, col);
+                }
             }
         }
 
@@ -710,18 +715,24 @@ float4 main(PSIn input) : SV_Target {
         float palmOffset = 0.485;
         float seed = basePalmIdx + float(k);
 
-        evalPalmAndLamp(p, -palmOffset * invZ, anchorY, invZ, -1.0, seed * 1.13 + 3.7, pxScale, uTime, col);
-        evalPalmAndLamp(p,  palmOffset * invZ, anchorY, invZ,  1.0, seed * 1.71 + 9.2, pxScale, uTime, col);
+        // Left palms never cross p.x >= 0 and right palms never cross p.x < 0
+        if (p.x < 0.0) {
+            evalPalmAndLamp(p, -palmOffset * invZ, anchorY, invZ, -1.0, seed * 1.13 + 3.7, pxScale, uTime, col);
+        } else {
+            evalPalmAndLamp(p,  palmOffset * invZ, anchorY, invZ,  1.0, seed * 1.71 + 9.2, pxScale, uTime, col);
+        }
 
         prevZ = zPalm;
     }
 
     // Draw any oncoming vehicle closer than the nearest palm
-    [loop]
-    for (int v2 = 8; v2 >= 0; v2--) {
-        float zVeh2 = zMinVeh + (float(v2) + (1.0 - tFrac)) * trafficStep;
-        if (zVeh2 < prevZ) {
-            evalOncomingVehicle(p, baseVehIdx + float(v2), zVeh2, pxScale, uTime, col);
+    if (p.y < 0.005) {
+        [loop]
+        for (int v2 = 8; v2 >= 0; v2--) {
+            float zVeh2 = zMinVeh + (float(v2) + (1.0 - tFrac)) * trafficStep;
+            if (zVeh2 < prevZ) {
+                evalOncomingVehicle(p, baseVehIdx + float(v2), zVeh2, pxScale, uTime, col);
+            }
         }
     }
 

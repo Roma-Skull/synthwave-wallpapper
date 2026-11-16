@@ -102,21 +102,25 @@ float4 main(PSIn input) : SV_Target {
         baseCol = sampleScene(sampleUv);
     }
 
-    // Phosphor bloom glow from bright highlights
+    // Phosphor bloom glow from bright highlights (6 staggered taps: 3 inner + 3 outer = ~62% fewer texture fetches)
     if (uBloom > 0.001) {
         float2 texel = (2.5 + uBloom * 8.5) / uResolution;
+        static const float2 bloomDirs[6] = {
+            float2( 1.000,  0.000) * 1.15,
+            float2(-0.500,  0.866) * 1.15,
+            float2(-0.500, -0.866) * 1.15,
+            float2( 0.500,  0.866) * 2.35,
+            float2(-1.000,  0.000) * 2.35,
+            float2( 0.500, -0.866) * 2.35
+        };
         float3 glowAcc = float3(0.0, 0.0, 0.0);
-        static const float PI2 = 6.2831853;
         [unroll]
-        for (int i = 0; i < 8; i++) {
-            float ang = float(i) * (PI2 / 8.0);
-            float2 dir = float2(cos(ang), sin(ang));
-            float3 s1 = sampleScene(sampleUv + dir * texel * 1.1);
-            float3 s2 = sampleScene(sampleUv + dir * texel * 2.4);
-            glowAcc += max(float3(0.0, 0.0, 0.0), s1 - 0.34) * 0.65
-                     + max(float3(0.0, 0.0, 0.0), s2 - 0.34) * 0.35;
+        for (int i = 0; i < 6; i++) {
+            float w = (i < 3) ? 0.65 : 0.35;
+            float3 s = sampleScene(sampleUv + bloomDirs[i] * texel);
+            glowAcc += max(float3(0.0, 0.0, 0.0), s - 0.34) * w;
         }
-        glowAcc /= 8.0;
+        glowAcc /= 3.0;
         float3 bloomTint = glowAcc * float3(1.06 + uVhs * 0.14, 1.0, 1.14 + uVhs * 0.16);
         baseCol = 1.0 - (1.0 - baseCol) * (1.0 - clamp(bloomTint * uBloom * 0.72, 0.0, 0.92));
     }
@@ -127,10 +131,11 @@ float4 main(PSIn input) : SV_Target {
         baseCol += lerp(sweepCol, float3(0.45, 0.94, 1.0), 0.35) * (sweepMask * 0.34);
     }
 
-    // Physical-pixel locked scanlines (zero moire on any DPI) & subtle aperture grille
+    // Physical-pixel locked scanlines (zero moire on any DPI; trig-free smooth bell curve) & aperture grille
     if (uScanlines > 0.001) {
         float phaseY = frac(input.pos.y / max(2.0, uScanPeriod));
-        float waveY = 0.5 + 0.5 * cos(phaseY * 6.2831853);
+        float wBell = abs(phaseY * 2.0 - 1.0);
+        float waveY = wBell * wBell * (3.0 - 2.0 * wBell);
         float interlace = uAnimate > 0.5 ? (0.95 + 0.05 * sin(uTime * 52.0)) : 1.0;
         float scanMul = 1.0 - uScanlines * 0.36 * (1.0 - waveY) * interlace;
         baseCol *= scanMul;
@@ -155,7 +160,8 @@ float4 main(PSIn input) : SV_Target {
 
         float2 glCrtUv = float2(crtUv.x, 1.0 - crtUv.y);
         float sheenAspect = clamp(rawAspect / 1.7778, 0.70, 2.2);
-        float sheen = exp(-pow(length((glCrtUv - float2(0.18, 0.85)) * float2(1.4 * sheenAspect, 2.2)), 2.0) * 3.5);
+        float2 sheenV = (glCrtUv - float2(0.18, 0.85)) * float2(1.4 * sheenAspect, 2.2);
+        float sheen = exp(-dot(sheenV, sheenV) * 3.5);
         baseCol += float3(0.18, 0.28, 0.36) * sheen * (0.08 * uVignette + 0.03 * uCurvature);
     }
 
