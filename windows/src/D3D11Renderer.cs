@@ -679,31 +679,12 @@ namespace NeonHorizonWallpaper
             return _defaultScenePixelShader;
         }
 
-        private static void ComputeSceneDimensions(uint targetW, uint targetH, string quality, out uint sceneW, out uint sceneH)
-        {
-            float scale = 1.0f;
-            if (string.Equals(quality, "eco", StringComparison.OrdinalIgnoreCase))
-            {
-                scale = 0.60f;
-            }
-            else if (string.Equals(quality, "balanced", StringComparison.OrdinalIgnoreCase))
-            {
-                scale = 0.75f;
-            }
-            else if (!string.Equals(quality, "native", StringComparison.OrdinalIgnoreCase))
-            {
-                // Auto mode: stay 100% native up to ~1440p, dynamically scale Pass 1 on 4K/5K2K (e.g. 5120x2160) while keeping Pass 2 CRT native
-                ulong pixels = (ulong)targetW * targetH;
-                if (pixels > 4000000UL)
-                {
-                    scale = (float)Math.Sqrt(3800000.0 / pixels);
-                    if (scale < 0.60f) scale = 0.60f;
-                    if (scale > 0.78f) scale = 0.78f;
-                }
-            }
+        private const float SceneRenderScale = 0.60f;
 
-            sceneW = Math.Max(64u, (uint)Math.Round(targetW * scale));
-            sceneH = Math.Max(64u, (uint)Math.Round(targetH * scale));
+        private static void ComputeSceneDimensions(uint targetW, uint targetH, out uint sceneW, out uint sceneH)
+        {
+            sceneW = Math.Max(64u, (uint)Math.Round(targetW * SceneRenderScale));
+            sceneH = Math.Max(64u, (uint)Math.Round(targetH * SceneRenderScale));
         }
 
         private bool EnsureSurfaceSceneTarget(D3D11Surface surface, uint sceneW, uint sceneH)
@@ -780,7 +761,7 @@ namespace NeonHorizonWallpaper
 
             float dpr = Math.Max(0.5f, dpi / 96.0f);
             float effectiveScale = Math.Max(dpr, targetHeight / 1080.0f);
-            int physPeriod = Math.Max(4, (int)Math.Round(4.5f * effectiveScale));
+            int physPeriod = Math.Max(6, (int)Math.Round(6.75f * effectiveScale));
             if ((physPeriod & 1) != 0) physPeriod += 1;
 
             bool active = settings.Enabled;
@@ -825,7 +806,7 @@ namespace NeonHorizonWallpaper
             if (!IsInitialized || surface == null || surface.SwapChain == IntPtr.Zero) return -1;
 
             uint sceneW, sceneH;
-            ComputeSceneDimensions(surface.Width, surface.Height, settings.RenderQuality, out sceneW, out sceneH);
+            ComputeSceneDimensions(surface.Width, surface.Height, out sceneW, out sceneH);
             if (!EnsureSurfaceSceneTarget(surface, sceneW, sceneH)) return -1;
 
             RenderPasses(
@@ -861,7 +842,7 @@ namespace NeonHorizonWallpaper
             uint w = (uint)Math.Max(32, width);
             uint h = (uint)Math.Max(32, height);
             uint sceneW, sceneH;
-            ComputeSceneDimensions(w, h, settings.RenderQuality, out sceneW, out sceneH);
+            ComputeSceneDimensions(w, h, out sceneW, out sceneH);
             IntPtr sceneTex = IntPtr.Zero;
             IntPtr sceneRtv = IntPtr.Zero;
             IntPtr sceneSrv = IntPtr.Zero;
