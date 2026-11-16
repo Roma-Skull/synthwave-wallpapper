@@ -276,6 +276,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           REL_TAG: ${{ needs.detect-changes.outputs.tag }}
           REL_VER: ${{ needs.detect-changes.outputs.version }}
           BUILT_WINDOWS: ${{ needs.build-windows.result == 'success' }}
