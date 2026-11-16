@@ -1,16 +1,26 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$Version = '1.0.0'
+    [string]$Version
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $Root = $PSScriptRoot
+$VersionFile = Join-Path $Root 'VERSION'
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    if (Test-Path $VersionFile) {
+        $Version = (Get-Content -Path $VersionFile -Raw).Trim()
+    } else {
+        $Version = '1.1.0'
+    }
+}
+
+$CleanVer = $Version.Trim() -replace '^(?:[a-zA-Z0-9_-]+-)?[vV]', ''
 $ExePath = Join-Path $Root 'NeonHorizonWallpaper.exe'
 
-& (Join-Path $Root 'build.ps1') -OutExe $ExePath
+& (Join-Path $Root 'build.ps1') -OutExe $ExePath -Version $CleanVer
 
 $DistDir = Join-Path $Root 'dist'
 if (Test-Path $DistDir) {
@@ -18,8 +28,7 @@ if (Test-Path $DistDir) {
 }
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 
-$CleanVer = $Version.TrimStart('v', 'V')
-$PackageName = "NeonHorizonWallpaper-v$CleanVer-win"
+$PackageName = "NeonHorizonWallpaper-v$CleanVer-windows"
 $StageDir = Join-Path $DistDir $PackageName
 New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
@@ -29,17 +38,37 @@ Copy-Item -Path (Join-Path $Root 'README.md') -Destination (Join-Path $StageDir 
 $ZipPath = Join-Path $DistDir "$PackageName.zip"
 Compress-Archive -Path "$StageDir\*" -DestinationPath $ZipPath -CompressionLevel Optimal -Force
 
-$DistExePath = Join-Path $DistDir 'NeonHorizonWallpaper.exe'
-Copy-Item -Path $ExePath -Destination $DistExePath -Force
+$DistWinExePath = Join-Path $DistDir 'NeonHorizonWallpaper-windows.exe'
+Copy-Item -Path $ExePath -Destination $DistWinExePath -Force
 
-$ChecksumsPath = Join-Path $DistDir 'checksums-sha256.txt'
+$ExeHash = (Get-FileHash -Path $DistWinExePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$ZipHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$ExeSize = (Get-Item $DistWinExePath).Length
+
+$ChecksumsPath = Join-Path $DistDir 'checksums-windows-sha256.txt'
 $hashLines = @(
-    (Get-FileHash -Path $ZipPath -Algorithm SHA256),
-    (Get-FileHash -Path $DistExePath -Algorithm SHA256)
-) | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLowerInvariant(), (Split-Path -Leaf $_.Path) }
+    "$ZipHash  $(Split-Path -Leaf $ZipPath)"
+    "$ExeHash  $(Split-Path -Leaf $DistWinExePath)"
+)
 [System.IO.File]::WriteAllLines($ChecksumsPath, $hashLines)
+
+# OS-scoped release manifest so future multi-OS releases (android, linux, macos, etc.) stay cleanly separated
+$ManifestPath = Join-Path $DistDir 'manifest-windows.json'
+$manifestObj = [ordered]@{
+    schemaVersion = 1
+    platform      = 'windows'
+    tag           = "windows-v$CleanVer"
+    version       = $CleanVer
+    asset         = (Split-Path -Leaf $DistWinExePath)
+    zipAsset      = (Split-Path -Leaf $ZipPath)
+    sha256        = $ExeHash
+    sizeBytes     = $ExeSize
+    minOs         = 'Windows 10'
+    releasedAtUtc = [DateTime]::UtcNow.ToString('o')
+}
+[System.IO.File]::WriteAllText($ManifestPath, ($manifestObj | ConvertTo-Json -Depth 4), [System.Text.Encoding]::UTF8)
 
 Remove-Item -Path $StageDir -Recurse -Force
 
-Write-Host "Packaged release artifacts in ${DistDir}:"
+Write-Host "Packaged Windows release artifacts in ${DistDir}:"
 Get-ChildItem $DistDir | Format-Table Name, Length -AutoSize

@@ -1,7 +1,8 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [string]$OutExe
+    [string]$OutExe,
+    [string]$Version
 )
 
 Set-StrictMode -Version Latest
@@ -11,6 +12,20 @@ $Root = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($OutExe)) {
     $OutExe = Join-Path $Root 'NeonHorizonWallpaper.exe'
 }
+$VersionFile = Join-Path $Root 'VERSION'
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    if (Test-Path $VersionFile) {
+        $Version = (Get-Content -Path $VersionFile -Raw).Trim()
+    } else {
+        $Version = '1.1.0'
+    }
+}
+$CleanVersion = $Version.Trim() -replace '^(?:[a-zA-Z0-9_-]+-)?[vV]', ''
+$VerParts = ($CleanVersion -split '[-+]')[0] -split '\.'
+$Major = if ($VerParts.Count -ge 1 -and $VerParts[0] -match '^\d+$') { [int]$VerParts[0] } else { 1 }
+$Minor = if ($VerParts.Count -ge 2 -and $VerParts[1] -match '^\d+$') { [int]$VerParts[1] } else { 0 }
+$Patch = if ($VerParts.Count -ge 3 -and $VerParts[2] -match '^\d+$') { [int]$VerParts[2] } else { 0 }
+$AsmVersion = "$Major.$Minor.$Patch.0"
 
 $AssetsDir = Join-Path $Root 'assets'
 if (-not (Test-Path $AssetsDir)) {
@@ -265,6 +280,18 @@ $crtDxbc = Join-Path $BinShaderDir 'crt_vhs.ps.dxbc'
 [HlslPrecompiler]::CompileToFile($cycleShader, 'ps_5_0', $cycleDxbc)
 [HlslPrecompiler]::CompileToFile($crtShader, 'ps_5_0', $crtDxbc)
 
+$asmInfoPath = Join-Path $env:TEMP 'neon_horizon_assembly_info.cs'
+$asmInfoCode = @"
+using System.Reflection;
+[assembly: AssemblyTitle("Neon Horizon Wallpaper")]
+[assembly: AssemblyProduct("Neon Horizon Wallpaper")]
+[assembly: AssemblyDescription("Native Synthwave & CRT/VHS Live Desktop Wallpaper")]
+[assembly: AssemblyVersion("$AsmVersion")]
+[assembly: AssemblyFileVersion("$AsmVersion")]
+[assembly: AssemblyInformationalVersion("$CleanVersion")]
+"@
+[System.IO.File]::WriteAllText($asmInfoPath, $asmInfoCode, [System.Text.Encoding]::UTF8)
+
 $rspPath = Join-Path $env:TEMP 'neon_horizon_wallpaper_csc.rsp'
 $rspLines = @(
     '/nologo'
@@ -288,16 +315,18 @@ $rspLines = @(
     '/reference:System.Drawing.dll'
     '/reference:System.Windows.Forms.dll'
     '/reference:System.Web.Extensions.dll'
+    "`"$asmInfoPath`""
 ) + ($srcFiles | ForEach-Object { "`"$_`"" })
 
 [System.IO.File]::WriteAllLines($rspPath, $rspLines)
 
-Write-Host "Building $OutExe..."
+Write-Host "Building $OutExe (v$CleanVersion)..."
 & $csc "@$rspPath"
 if ($LASTEXITCODE -ne 0) {
     throw "csc.exe failed with exit code $LASTEXITCODE"
 }
 Remove-Item -Path $rspPath -ErrorAction SilentlyContinue
+Remove-Item -Path $asmInfoPath -ErrorAction SilentlyContinue
 
 $info = Get-Item $OutExe
 Write-Host ("Built successfully: {0} ({1:N0} bytes)" -f $info.FullName, $info.Length)

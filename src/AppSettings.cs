@@ -42,6 +42,7 @@ namespace NeonHorizonWallpaper
         public int GridSpeed { get; set; }
         public int TargetFps { get; set; }
         public bool PauseOnFullscreen { get; set; }
+        public bool AutoCheckUpdates { get; set; }
 
         public AppSettings()
         {
@@ -64,6 +65,7 @@ namespace NeonHorizonWallpaper
             GridSpeed = 100;
             TargetFps = 30;
             PauseOnFullscreen = true;
+            AutoCheckUpdates = true;
         }
 
         public AppSettings Clone()
@@ -83,6 +85,7 @@ namespace NeonHorizonWallpaper
             copy.GridSpeed = GridSpeed;
             copy.TargetFps = TargetFps;
             copy.PauseOnFullscreen = PauseOnFullscreen;
+            copy.AutoCheckUpdates = AutoCheckUpdates;
             return copy;
         }
 

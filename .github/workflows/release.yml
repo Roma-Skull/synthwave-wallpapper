@@ -3,13 +3,14 @@ name: Release Windows Build
 on:
   push:
     tags:
+      - 'windows-v*'
       - 'v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v1.0.0)'
+        description: 'Windows release tag (e.g. windows-v1.1.0)'
         required: true
-        default: 'v1.0.0'
+        default: 'windows-v1.1.0'
 
 permissions:
   contents: write
@@ -21,7 +22,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Determine version tag
+      - name: Determine Windows version tag
         id: ver
         shell: pwsh
         run: |
@@ -30,7 +31,7 @@ jobs:
           } else {
             $tag = "${{ github.ref_name }}"
           }
-          $clean = $tag.TrimStart('v', 'V')
+          $clean = $tag -replace '^(?:[a-zA-Z0-9_-]+-)?[vV]', ''
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "version=$clean" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
@@ -39,15 +40,16 @@ jobs:
         run: |
           .\package.ps1 -Version "${{ steps.ver.outputs.version }}"
 
-      - name: Smoke-test offscreen shader render (WARP/GPU)
+      - name: Smoke-test offscreen shader renders (WARP/GPU)
         shell: powershell
         run: |
-          $outPng = Join-Path $env:RUNNER_TEMP 'smoke_miami.png'
-          & .\dist\NeonHorizonWallpaper.exe --test-render $outPng miami_drive | Out-String
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outPng)) { throw "Smoke render PNG was not created" }
-          $outPng2 = Join-Path $env:RUNNER_TEMP 'smoke_neon.png'
-          & .\dist\NeonHorizonWallpaper.exe --test-render $outPng2 neon_horizon | Out-String
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outPng2)) { throw "Smoke render PNG2 was not created" }
+          foreach ($scene in @('neon_horizon', 'miami_drive', 'light_cycle')) {
+            $outPng = Join-Path $env:RUNNER_TEMP "smoke_$scene.png"
+            & .\dist\NeonHorizonWallpaper-windows.exe --test-render $outPng $scene 1280 720 | Out-String
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outPng)) {
+              throw "Smoke render PNG was not created for scene $scene"
+            }
+          }
 
       - name: Publish GitHub Release
         env:
@@ -56,23 +58,25 @@ jobs:
         run: |
           $tag = "${{ steps.ver.outputs.tag }}"
           $ver = "${{ steps.ver.outputs.version }}"
-          $zip = "dist/NeonHorizonWallpaper-v$ver-win.zip"
-          $exe = "dist/NeonHorizonWallpaper.exe"
-          $sha = "dist/checksums-sha256.txt"
+          $zip = "dist/NeonHorizonWallpaper-v$ver-windows.zip"
+          $exe = "dist/NeonHorizonWallpaper-windows.exe"
+          $sha = "dist/checksums-windows-sha256.txt"
+          $man = "dist/manifest-windows.json"
           $notesPath = Join-Path $env:RUNNER_TEMP 'release_notes.md'
           $lines = @(
-            "## Neon Horizon — Live Synthwave & CRT/VHS Desktop Wallpaper ($tag)",
+            "## Neon Horizon — Windows Live Desktop Wallpaper (v$ver)",
             "",
-            "Нативные живые обои для Windows 10 / Windows 11 (включая 24H2) на Direct3D 11 + DirectComposition + HLSL:",
-            "- Две процедурные сцены на выбор: **Neon Horizon** и **Miami Sunset Drive** (суперкар в своей полосе, встречные легковушки и фуры, пролетающие пальмы и скайлайн Майами).",
-            "- Двухпроходный CRT/VHS-шейдер: скруглённая ЭЛТ-рамка, сканлайны с привязкой к DPI, RGB-решётка, Bloom, VHS-хроматика, зерно и полоса развёртки.",
-            "- Управление из системного трея, панель настроек и автопауза при полноэкранных приложениях.",
+            "Платформа: **Windows 10 / Windows 11 (включая 24H2+)** — нативный Direct3D 11 + DirectComposition + HLSL рендер.",
+            "",
+            "- Три процедурные сцены: **Neon Horizon**, **Miami Sunset Drive** и **Light Cycle (TRON)**.",
+            "- Двухпроходный CRT/VHS-шейдер с поддержкой произвольных соотношений сторон и DPI.",
+            "- Встроенный модуль автообновления из GitHub Releases с проверкой SHA-256.",
             "",
             "### Загрузка и запуск",
-            "- Скачайте **`NeonHorizonWallpaper.exe`** (полностью автономный одиночный файл) или **`NeonHorizonWallpaper-v$ver-win.zip`**.",
-            "- Запустите `NeonHorizonWallpaper.exe` — иконка появится в системном трее (двойной клик открывает настройки)."
+            "- Скачайте **`NeonHorizonWallpaper-windows.exe`** (одиночный автономный файл) или **`NeonHorizonWallpaper-v$ver-windows.zip`**.",
+            "- Запустите — иконка появится в системном трее (двойной клик открывает настройки)."
           )
           [System.IO.File]::WriteAllLines($notesPath, $lines)
-          gh release create $tag $zip $exe $sha `
-            --title "Neon Horizon Wallpaper $tag (Windows)" `
+          gh release create $tag $zip $exe $sha $man `
+            --title "Neon Horizon Wallpaper v$ver [Windows]" `
             --notes-file $notesPath

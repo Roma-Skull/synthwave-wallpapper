@@ -17,6 +17,11 @@ namespace NeonHorizonWallpaper
         public const uint WM_OPEN_PREVIEW = NativeMethods.WM_USER + 43;
         public const uint WM_EXIT_APP = NativeMethods.WM_USER + 44;
         public const uint WM_REBUILD_DESKTOP = NativeMethods.WM_USER + 45;
+        public const uint WM_UPDATE_EVENT = NativeMethods.WM_USER + 46;
+
+        private const int UpdateEventCheckDone = 1;
+        private const int UpdateEventDownloadProgress = 2;
+        private const int UpdateEventStageDone = 3;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MSG
@@ -77,6 +82,11 @@ namespace NeonHorizonWallpaper
                     _app.HandleDesktopTopologyRefresh();
                     return;
                 }
+                if (m.Msg == (int)WM_UPDATE_EVENT)
+                {
+                    _app.HandleUpdateEvent((int)m.WParam);
+                    return;
+                }
                 base.WndProc(ref m);
             }
         }
@@ -97,8 +107,22 @@ namespace NeonHorizonWallpaper
 
         private ToolStripMenuItem _menuPause;
         private ToolStripMenuItem _menuShaderToggle;
+        private ToolStripMenuItem _menuUpdate;
         private ToolStripMenuItem[] _menuScenes;
         private ToolStripMenuItem[] _menuPresets;
+
+        private readonly object _updateSync = new object();
+        private System.Windows.Forms.Timer _startupUpdateTimer;
+        private bool _updateBusy;
+        private UpdateReleaseInfo _availableUpdate;
+        private UpdateCheckResult _pendingCheckResult;
+        private int _pendingProgressPct;
+        private string _pendingProgressText;
+        private string _pendingStagedExePath;
+        private string _pendingFinalDestPath;
+        private string _pendingStageError;
+        private UpdateReleaseInfo _pendingStageRelease;
+        private string _updateBtnLabel = "Updates";
 
         private bool _manualPaused;
         private bool _autoPausedFullscreen;
@@ -113,7 +137,7 @@ namespace NeonHorizonWallpaper
         private float _gridTime;
         private float _crtTime;
 
-        public TrayApplication(bool openSettingsOnStart, bool openPreviewOnStart, bool previewOnly)
+        public TrayApplication(bool openSettingsOnStart, bool openPreviewOnStart, bool previewOnly, string updatedVersion)
         {
             Logger.Reset();
             _previewOnly = previewOnly;
@@ -132,7 +156,7 @@ namespace NeonHorizonWallpaper
                     MessageBoxIcon.Error);
                 throw new InvalidOperationException(err);
             }
-            Logger.Info("Renderer initialized. HasDirectComposition=" + _renderer.HasDirectComposition);
+            Logger.Info("Renderer initialized. Version=" + UpdateManager.GetCurrentVersion().Normalized + " HasDirectComposition=" + _renderer.HasDirectComposition);
 
             _ipcWindow = new IpcMessageWindow(this);
             _trayIcon = BuildTrayIcon();
@@ -167,6 +191,41 @@ namespace NeonHorizonWallpaper
 
             // Always render an initial frame immediately
             RenderAllWindows(true);
+
+            if (!string.IsNullOrEmpty(updatedVersion))
+            {
+                try
+                {
+                    _trayIcon.ShowBalloonTip(
+                        3500,
+                        "Neon Horizon Updated",
+                        "Now running Windows v" + updatedVersion + ".",
+                        ToolTipIcon.Info);
+                }
+                catch
+                {
+                }
+            }
+
+            if (_settings.AutoCheckUpdates && !_previewOnly)
+            {
+                _startupUpdateTimer = new System.Windows.Forms.Timer();
+                _startupUpdateTimer.Interval = 4500;
+                _startupUpdateTimer.Tick += delegate
+                {
+                    if (_startupUpdateTimer != null)
+                    {
+                        _startupUpdateTimer.Stop();
+                        _startupUpdateTimer.Dispose();
+                        _startupUpdateTimer = null;
+                    }
+                    if (!_exiting)
+                    {
+                        StartUpdateCheck(false);
+                    }
+                };
+                _startupUpdateTimer.Start();
+            }
         }
 
         private static Icon LoadAppIcon()
@@ -259,6 +318,10 @@ namespace NeonHorizonWallpaper
             _menuPause = new ToolStripMenuItem("Pause Animation");
             _menuPause.Click += delegate { ToggleManualPause(); };
             menu.Items.Add(_menuPause);
+
+            _menuUpdate = new ToolStripMenuItem("Check for Updates (v" + UpdateManager.GetCurrentVersion().Normalized + ")...");
+            _menuUpdate.Click += delegate { HandleUpdateActionRequested(); };
+            menu.Items.Add(_menuUpdate);
 
             menu.Items.Add(new ToolStripSeparator());
 
@@ -355,9 +418,11 @@ namespace NeonHorizonWallpaper
                     OpenPreviewWindow,
                     ToggleManualPause,
                     delegate { return _manualPaused; },
-                    GetStatusSummary);
+                    GetStatusSummary,
+                    HandleUpdateActionRequested);
             }
             _settingsForm.RefreshFromSettings();
+            SyncUpdateUi();
             if (!_settingsForm.Visible)
             {
                 _settingsForm.Show();
@@ -750,6 +815,12 @@ namespace NeonHorizonWallpaper
                 _watchdogTimer.Stop();
                 _watchdogTimer.Dispose();
             }
+            if (_startupUpdateTimer != null)
+            {
+                _startupUpdateTimer.Stop();
+                _startupUpdateTimer.Dispose();
+                _startupUpdateTimer = null;
+            }
 
             if (_settingsForm != null && !_settingsForm.IsDisposed)
             {
@@ -778,6 +849,300 @@ namespace NeonHorizonWallpaper
             }
 
             ExitThread();
+        }
+
+        private void SyncUpdateUi()
+        {
+            bool hasUpdate = (_availableUpdate != null);
+            if (_menuUpdate != null)
+            {
+                if (_updateBusy)
+                {
+                    _menuUpdate.Text = _updateBtnLabel;
+                    _menuUpdate.Enabled = false;
+                }
+                else if (hasUpdate)
+                {
+                    _menuUpdate.Text = "Install Update v" + _availableUpdate.Version.Normalized + "...";
+                    _menuUpdate.Enabled = true;
+                }
+                else
+                {
+                    _menuUpdate.Text = "Check for Updates (v" + UpdateManager.GetCurrentVersion().Normalized + ")...";
+                    _menuUpdate.Enabled = true;
+                }
+            }
+            if (_settingsForm != null && !_settingsForm.IsDisposed)
+            {
+                _settingsForm.SetUpdateUiState(_updateBtnLabel, hasUpdate, _updateBusy);
+            }
+        }
+
+        private void PostUpdateEvent(int eventKind)
+        {
+            if (_exiting || _ipcWindow == null || _ipcWindow.Handle == IntPtr.Zero) return;
+            PostMessage(_ipcWindow.Handle, WM_UPDATE_EVENT, (IntPtr)eventKind, IntPtr.Zero);
+        }
+
+        public void HandleUpdateActionRequested()
+        {
+            if (_exiting || _updateBusy) return;
+            if (_availableUpdate != null)
+            {
+                PromptAndInstallUpdate(_availableUpdate);
+                return;
+            }
+            StartUpdateCheck(true);
+        }
+
+        private void StartUpdateCheck(bool userInitiated)
+        {
+            if (_updateBusy || _exiting) return;
+            _updateBusy = true;
+            _updateBtnLabel = userInitiated ? "Checking..." : _updateBtnLabel;
+            SyncUpdateUi();
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateCheckResult res = UpdateManager.CheckForUpdates(userInitiated);
+                lock (_updateSync)
+                {
+                    _pendingCheckResult = res;
+                }
+                PostUpdateEvent(UpdateEventCheckDone);
+            });
+        }
+
+        private void StartDownloadAndInstall(UpdateReleaseInfo release)
+        {
+            if (_updateBusy || _exiting || release == null) return;
+            _updateBusy = true;
+            _updateBtnLabel = "0%";
+            SyncUpdateUi();
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string finalDest;
+                string err;
+                string staged = UpdateManager.DownloadAndStageUpdate(release, Application.ExecutablePath, delegate(int pct, string msg)
+                {
+                    lock (_updateSync)
+                    {
+                        _pendingProgressPct = pct;
+                        _pendingProgressText = msg;
+                    }
+                    PostUpdateEvent(UpdateEventDownloadProgress);
+                }, out finalDest, out err);
+
+                lock (_updateSync)
+                {
+                    _pendingStageRelease = release;
+                    _pendingStagedExePath = staged;
+                    _pendingFinalDestPath = finalDest;
+                    _pendingStageError = err;
+                }
+                PostUpdateEvent(UpdateEventStageDone);
+            });
+        }
+
+        private void PromptAndInstallUpdate(UpdateReleaseInfo rel)
+        {
+            if (rel == null) return;
+            string current = UpdateManager.GetCurrentVersion().Normalized;
+            string assetName = rel.BinaryAsset != null ? rel.BinaryAsset.Name : "NeonHorizonWallpaper-windows.exe";
+            string text = string.Format(
+                "A new Windows release is available!\n\n" +
+                "Current version: v{0}\n" +
+                "Latest version: v{1} ({2})\n" +
+                "Package: {3}\n\n" +
+                "Download, verify SHA-256 checksum, and restart wallpaper now?",
+                current,
+                rel.Version.Normalized,
+                rel.TagName,
+                assetName);
+
+            IWin32Window owner = (_settingsForm != null && !_settingsForm.IsDisposed && _settingsForm.Visible)
+                ? (IWin32Window)_settingsForm
+                : null;
+            DialogResult choice = MessageBox.Show(
+                owner,
+                text,
+                "Neon Horizon — Update Available",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (choice == DialogResult.Yes)
+            {
+                StartDownloadAndInstall(rel);
+            }
+        }
+
+        public void HandleUpdateEvent(int eventKind)
+        {
+            if (_exiting) return;
+
+            if (eventKind == UpdateEventCheckDone)
+            {
+                UpdateCheckResult res;
+                lock (_updateSync)
+                {
+                    res = _pendingCheckResult;
+                    _pendingCheckResult = null;
+                }
+                _updateBusy = false;
+
+                if (res == null)
+                {
+                    _updateBtnLabel = "Updates";
+                    SyncUpdateUi();
+                    return;
+                }
+
+                if (!res.Success)
+                {
+                    Logger.Error("Update check failed: " + res.ErrorMessage);
+                    _updateBtnLabel = "Updates";
+                    SyncUpdateUi();
+                    if (res.IsUserInitiated)
+                    {
+                        IWin32Window owner = (_settingsForm != null && !_settingsForm.IsDisposed && _settingsForm.Visible)
+                            ? (IWin32Window)_settingsForm
+                            : null;
+                        MessageBox.Show(
+                            owner,
+                            "Unable to check GitHub Releases:\n" + res.ErrorMessage,
+                            "Neon Horizon — Update Check",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                    }
+                    return;
+                }
+
+                if (res.UpdateAvailable && res.LatestRelease != null)
+                {
+                    _availableUpdate = res.LatestRelease;
+                    _updateBtnLabel = "Update v" + _availableUpdate.Version.Normalized;
+                    Logger.Info("Update found for Windows: " + _availableUpdate.TagName + " -> v" + _availableUpdate.Version.Normalized);
+                    SyncUpdateUi();
+
+                    if (res.IsUserInitiated)
+                    {
+                        PromptAndInstallUpdate(_availableUpdate);
+                    }
+                    else
+                    {
+                        try
+                        {
+                            _trayIcon.ShowBalloonTip(
+                                5000,
+                                "Neon Horizon Update Available",
+                                "Version v" + _availableUpdate.Version.Normalized + " for Windows is ready. Click tray menu or Settings -> Update to install.",
+                                ToolTipIcon.Info);
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+                else
+                {
+                    _availableUpdate = null;
+                    _updateBtnLabel = "Updates";
+                    Logger.Info("Up to date (Windows v" + res.CurrentVersion.Normalized + ").");
+                    SyncUpdateUi();
+
+                    if (res.IsUserInitiated)
+                    {
+                        string latestInfo = (res.LatestRelease != null && res.LatestRelease.Version != null)
+                            ? ("\nLatest Windows release: v" + res.LatestRelease.Version.Normalized + " (" + res.LatestRelease.TagName + ")")
+                            : string.Empty;
+                        IWin32Window owner = (_settingsForm != null && !_settingsForm.IsDisposed && _settingsForm.Visible)
+                            ? (IWin32Window)_settingsForm
+                            : null;
+                        MessageBox.Show(
+                            owner,
+                            "You are running the latest Windows version (v" + res.CurrentVersion.Normalized + ")." + latestInfo,
+                            "Neon Horizon — Up to Date",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                    }
+                }
+            }
+            else if (eventKind == UpdateEventDownloadProgress)
+            {
+                int pct;
+                string txt;
+                lock (_updateSync)
+                {
+                    pct = _pendingProgressPct;
+                    txt = _pendingProgressText;
+                }
+                _updateBtnLabel = pct + "%";
+                if (_trayIcon != null && !string.IsNullOrEmpty(txt))
+                {
+                    string tip = txt.Length > 63 ? txt.Substring(0, 63) : txt;
+                    _trayIcon.Text = tip;
+                }
+                SyncUpdateUi();
+            }
+            else if (eventKind == UpdateEventStageDone)
+            {
+                string stagedPath;
+                string finalDestPath;
+                string err;
+                UpdateReleaseInfo rel;
+                lock (_updateSync)
+                {
+                    stagedPath = _pendingStagedExePath;
+                    finalDestPath = _pendingFinalDestPath;
+                    err = _pendingStageError;
+                    rel = _pendingStageRelease;
+                    _pendingStagedExePath = null;
+                    _pendingFinalDestPath = null;
+                    _pendingStageError = null;
+                    _pendingStageRelease = null;
+                }
+                _updateBusy = false;
+                if (_trayIcon != null)
+                {
+                    _trayIcon.Text = "Neon Horizon — Synthwave CRT Wallpaper";
+                }
+
+                if (string.IsNullOrEmpty(stagedPath))
+                {
+                    _updateBtnLabel = _availableUpdate != null ? ("Update v" + _availableUpdate.Version.Normalized) : "Updates";
+                    SyncUpdateUi();
+                    Logger.Error("Update staging failed: " + err);
+                    IWin32Window owner = (_settingsForm != null && !_settingsForm.IsDisposed && _settingsForm.Visible)
+                        ? (IWin32Window)_settingsForm
+                        : null;
+                    MessageBox.Show(
+                        owner,
+                        "Could not install update:\n" + err,
+                        "Neon Horizon — Update Failed",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return;
+                }
+
+                bool reopenSettings = (_settingsForm != null && !_settingsForm.IsDisposed && _settingsForm.Visible);
+                string launchErr;
+                if (!UpdateManager.LaunchStagedUpdaterAndPrepareExit(stagedPath, Application.ExecutablePath, finalDestPath, reopenSettings, out launchErr))
+                {
+                    _updateBtnLabel = _availableUpdate != null ? ("Update v" + _availableUpdate.Version.Normalized) : "Updates";
+                    SyncUpdateUi();
+                    MessageBox.Show(
+                        reopenSettings ? (IWin32Window)_settingsForm : null,
+                        launchErr,
+                        "Neon Horizon — Update Failed",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return;
+                }
+
+                Logger.Info("Exiting to apply update v" + (rel != null ? rel.Version.Normalized : "?") + "...");
+                ExitGracefully();
+            }
         }
     }
 }
