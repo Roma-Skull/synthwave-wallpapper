@@ -250,7 +250,7 @@ void evalOncomingVehicle(
     float laneWorldX = laneChoice < 0.5 ? -0.315 : -0.110;
     laneWorldX += (rnd.w - 0.5) * 0.022;
 
-    float invZ = 1.0 / max(0.05, zVeh);
+    float invZ = 1.0 / max(0.035, zVeh);
     float bounce = sin(time * 8.5 + slotIdx * 4.3) * 0.0012 * invZ;
     float2 anchor = float2(laneWorldX * invZ, -0.26 * invZ + bounce);
 
@@ -557,8 +557,8 @@ float4 main(PSIn input) : SV_Target {
     float horY = 0.43;
     // Isotropic camera: on landscape (aspect >= 0.95) viewH = 1.0 (identical framing);
     // on portrait monitors (aspect < 0.95) viewH scales vertically to keep 1:1 pixel proportions without clipping road/car.
-    float viewH = max(1.0, 0.95 / max(0.35, aspect));
-    float pxScale = viewH / uResolution.y;
+    float viewH = max(1.0, 0.95 / max(0.15, aspect));
+    float pxScale = viewH / max(1.0, uResolution.y);
     float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.088);
 
@@ -672,28 +672,28 @@ float4 main(PSIn input) : SV_Target {
     }
 
     // 5. Electric Cyan Horizon Beam
-    float horGlow = exp(-abs(p.y) * 130.0);
-    float horCore = exp(-abs(p.y) * 480.0);
+    float horGlow = exp(-abs(p.y) * 130.0 / viewH);
+    float horCore = exp(-abs(p.y) * 480.0 / viewH);
     col += float3(0.15, 0.94, 1.0) * (horGlow * 0.46 + horCore * 0.82);
 
     // 6. Back-to-Front Palm Trees, Streetlights & Oncoming Traffic (exact depth interleaving)
-    // Palms extend down to zMin = 0.16 and vehicles down to zMin = 0.06 so both exit completely past the portrait/landscape viewport before wrapping.
+    // Palms extend down to zMin = 0.07 and vehicles down to zMin = 0.05 so both exit completely off-screen on arbitrary aspect ratios (from 9:21 portrait to 48:9 super-ultrawide) before wrapping.
     float stepZ = 1.45;
     float scrollCycles = (uGridTime * driveSpeed) / stepZ;
     float zFrac = frac(scrollCycles);
     float basePalmIdx = floor(scrollCycles);
-    float zMinPalm = 0.16;
+    float zMinPalm = 0.07;
 
     float trafficSpeed = 6.4;
     float trafficStep = 3.1;
     float trafficCycles = (uGridTime * trafficSpeed) / trafficStep;
     float tFrac = frac(trafficCycles);
     float baseVehIdx = floor(trafficCycles);
-    float zMinVeh = 0.06;
+    float zMinVeh = 0.05;
 
     float prevZ = 1e6;
     [loop]
-    for (int k = 11; k >= 0; k--) {
+    for (int k = 12; k >= 0; k--) {
         float zPalm = zMinPalm + (float(k) + (1.0 - zFrac)) * stepZ;
 
         // Draw any oncoming vehicles between prevZ and zPalm (back-to-front)
@@ -705,7 +705,7 @@ float4 main(PSIn input) : SV_Target {
             }
         }
 
-        float invZ = 1.0 / max(0.12, zPalm);
+        float invZ = 1.0 / max(0.06, zPalm);
         float anchorY = -0.26 * invZ;
         float palmOffset = 0.485;
         float seed = basePalmIdx + float(k);
