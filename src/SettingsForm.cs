@@ -239,15 +239,19 @@ namespace NeonHorizonWallpaper
         private readonly Action _togglePause;
         private readonly Func<bool> _isPaused;
         private readonly Func<string> _getStatusSummary;
+        private readonly Action _triggerUpdateAction;
 
         private NeonToggle _toggleShader;
         private CheckBox _chkAnimateBg;
         private CheckBox _chkAnimateScan;
         private CheckBox _chkPauseFs;
         private CheckBox _chkStartup;
+        private CheckBox _chkAutoUpdate;
         private ComboBox _cmbFps;
         private Label _lblStatus;
+        private Label _lblVersion;
         private Button _btnPause;
+        private Button _btnCheckUpdate;
 
         private Button[] _sceneBtns;
         private Button[] _presetBtns;
@@ -280,7 +284,8 @@ namespace NeonHorizonWallpaper
             Action openPreview,
             Action togglePause,
             Func<bool> isPaused,
-            Func<string> getStatusSummary)
+            Func<string> getStatusSummary,
+            Action triggerUpdateAction)
         {
             _getSettings = getSettings;
             _applySettings = applySettings;
@@ -289,6 +294,7 @@ namespace NeonHorizonWallpaper
             _togglePause = togglePause;
             _isPaused = isPaused;
             _getStatusSummary = getStatusSummary;
+            _triggerUpdateAction = triggerUpdateAction;
 
             Icon = appIcon;
             Text = "Neon Horizon — CRT & VHS Desktop Wallpaper";
@@ -301,7 +307,7 @@ namespace NeonHorizonWallpaper
             Font = new Font("Segoe UI", 9.0f, FontStyle.Regular);
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96f, 96f);
-            ClientSize = new Size(420, 684);
+            ClientSize = new Size(420, 712);
 
             BuildLayout();
             RefreshFromSettings();
@@ -510,7 +516,7 @@ namespace NeonHorizonWallpaper
             y += 306;
 
             // Desktop & Performance Card
-            Panel perfCard = CreateCardPanel(margin, y, contentW, 88);
+            Panel perfCard = CreateCardPanel(margin, y, contentW, 114);
 
             Label lblFps = new Label();
             lblFps.Text = "FPS limit:";
@@ -562,9 +568,32 @@ namespace NeonHorizonWallpaper
             };
             perfCard.Controls.Add(_chkStartup);
 
+            _chkAutoUpdate = CreateStyledCheckbox("Auto-check for updates", 10, 86);
+            _chkAutoUpdate.CheckedChanged += delegate
+            {
+                if (_updatingUi) return;
+                PatchSetting(delegate(AppSettings s) { s.AutoCheckUpdates = _chkAutoUpdate.Checked; }, true);
+            };
+            perfCard.Controls.Add(_chkAutoUpdate);
+
+            _lblVersion = new Label();
+            _lblVersion.Text = "v" + UpdateManager.GetCurrentVersion().Normalized;
+            _lblVersion.ForeColor = ColTextMuted;
+            _lblVersion.Font = new Font("Consolas", 8.0f, FontStyle.Regular);
+            _lblVersion.TextAlign = ContentAlignment.MiddleRight;
+            _lblVersion.Bounds = new Rectangle(194, 86, 64, 20);
+            perfCard.Controls.Add(_lblVersion);
+
+            _btnCheckUpdate = CreateActionButton("Updates", ColBgElev, ColCyan, 264, 83, 110, 24);
+            _btnCheckUpdate.Click += delegate
+            {
+                if (_triggerUpdateAction != null) _triggerUpdateAction();
+            };
+            perfCard.Controls.Add(_btnCheckUpdate);
+
             Controls.Add(perfCard);
 
-            y += 98;
+            y += 124;
 
             // Bottom action buttons
             Button btnPreview = CreateActionButton("Preview Window", ColBgElev, ColCyan, margin, y, 126, 30);
@@ -701,6 +730,7 @@ namespace NeonHorizonWallpaper
                 _chkAnimateScan.Checked = s.Animate;
                 _chkPauseFs.Checked = s.PauseOnFullscreen;
                 _chkStartup.Checked = StartupManager.IsEnabled();
+                _chkAutoUpdate.Checked = s.AutoCheckUpdates;
 
                 _sldCurvature.Value = s.Curvature;
                 _valCurvature.Text = s.Curvature + "%";
@@ -760,6 +790,25 @@ namespace NeonHorizonWallpaper
             bool paused = _isPaused();
             _btnPause.Text = paused ? "Resume" : "Pause";
             _lblStatus.Text = _getStatusSummary();
+        }
+
+        public void SetUpdateUiState(string buttonText, bool highlightAvailable, bool busy)
+        {
+            if (_btnCheckUpdate == null || _btnCheckUpdate.IsDisposed) return;
+            _btnCheckUpdate.Text = string.IsNullOrEmpty(buttonText) ? "Updates" : buttonText;
+            _btnCheckUpdate.Enabled = !busy;
+            if (highlightAvailable)
+            {
+                _btnCheckUpdate.BackColor = Color.FromArgb(46, 16, 74);
+                _btnCheckUpdate.ForeColor = ColMagenta;
+                _btnCheckUpdate.FlatAppearance.BorderColor = ColCyan;
+            }
+            else
+            {
+                _btnCheckUpdate.BackColor = ColBgElev;
+                _btnCheckUpdate.ForeColor = ColCyan;
+                _btnCheckUpdate.FlatAppearance.BorderColor = Color.FromArgb(120, ColCyan);
+            }
         }
     }
 }

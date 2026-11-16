@@ -35,19 +35,21 @@
 - **Интеграция с рабочим столом Windows 11 24H2+ (Build 26100) и Windows 10 / 11 (Pre-24H2):**
   - автоматически определяет режим **Raised Desktop** (`Progman` + `DirectComposition` + Z-порядок под `SHELLDLL_DefView`) или классический `WorkerW`, чтобы обои отображались строго **за значками рабочего стола** и не мешали кликам.
 - **Экономия ресурсов:** автоматическая пауза при запуске полноэкранных приложений/игр или блокировке экрана, ограничитель FPS (по умолчанию `30 FPS`; доступны `30`, `60`, `120`, `Monitor VSync`), управление из системного трея.
+- **Автообновление (Windows):** встроенная фоновая проверка новых релизов в GitHub (с разделением релизов по ОС), проверка SHA-256 контрольной суммы, атомарная замена исполняемого файла и автоматический перезапуск.
 - **4 готовых пресета:** `Soft CRT`, `Outrun 84`, `VHS Tape`, `Minimal` + тонкие ползунки, скорость движения, автозапуск.
 
 ---
 
 ## Быстрый запуск (Windows)
 
-1. Скачайте готовый `NeonHorizonWallpaper.exe` (или ZIP-архив) со страницы [Releases](https://github.com/Roma-Skull/synthwave-wallpapper/releases), либо соберите локально через `build.ps1`.
+1. Скачайте `NeonHorizonWallpaper-windows.exe` (или `NeonHorizonWallpaper-v*-windows.zip`) со страницы [Releases](https://github.com/Roma-Skull/synthwave-wallpapper/releases), либо соберите локально через `build.ps1`.
 2. Запустите `NeonHorizonWallpaper.exe` (иконка появится в системном трее рядом с часами).
 3. Двойной клик по иконке в трее (или `Configure CRT / VHS & Scene...`) открывает панель настроек.
 4. Полезные параметры запуска:
    - `NeonHorizonWallpaper.exe --settings` — сразу открыть окно настроек;
    - `NeonHorizonWallpaper.exe --preview` — дополнительно открыть отдельное окно предпросмотра;
    - `NeonHorizonWallpaper.exe --preview-only` — только окно предпросмотра (без встраивания в рабочий стол);
+   - `NeonHorizonWallpaper.exe --check-update` — проверить наличие обновления в консоли;
    - `NeonHorizonWallpaper.exe --exit` — корректно завершить работающий экземпляр;
    - `NeonHorizonWallpaper.exe --test-render frame.png [neon_horizon|miami_drive|light_cycle] [width height]` — отрендерить один кадр выбранной сцены в PNG через GPU для проверки.
 
@@ -61,11 +63,22 @@
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File package.ps1 -Version 1.0.0
+powershell -NoProfile -ExecutionPolicy Bypass -File package.ps1 -Version 1.1.0
 ```
 
+### Схема разделения релизов по ОС
+
+Чтобы независимые релизы для **Windows**, **Android** и любых будущих платформ (`linux`, `macos` и т.д.) не конфликтовали через общий `/releases/latest`, используется единый контракт тегов и артефактов:
+
+- **Теги с префиксом платформы:** `<platform>-v<semver>` — например `windows-v1.1.0`, `android-v1.0.0`, `linux-v1.0.0` (legacy/общие теги вида `vX.Y.Z` также поддерживаются, если внутри есть бинарник/манифест нужной ОС).
+- **Имена ассетов и манифест ОС:** каждая платформа публикует файлы с суффиксом ОС, контрольные суммы и манифест:
+  - для Windows: `NeonHorizonWallpaper-windows.exe`, `NeonHorizonWallpaper-v<ver>-windows.zip`, `checksums-windows-sha256.txt`, `manifest-windows.json`;
+  - для будущих платформ: `NeonHorizonWallpaper-<os>.*`, `checksums-<os>-sha256.txt`, `manifest-<os>.json`.
+- **Фильтрация в клиенте автообновления:** клиент запрашивает `/releases`, отбирает только релизы своей платформы (`windows-v*` или общие `v*` с Windows-ассетом), игнорирует чужие ОС (`android-v*` и др.) и проверяет SHA-256 перед заменой.
+
 Структура проекта:
-- [`src/`](src/) — Win32/DesktopHost (24H2 + WorkerW), D3D11/DXGI/DirectComposition рендерер, окно настроек и трей;
+- [`VERSION`](VERSION) — базовая версия сборки Windows;
+- [`src/`](src/) — Win32/DesktopHost (24H2 + WorkerW), D3D11/DXGI/DirectComposition рендерер, автообновление (`UpdateManager.cs`), окно настроек и трей;
 - [`shaders/`](shaders/) — HLSL-шейдеры (`fullscreen.vs.hlsl`, `synthwave_scene.ps.hlsl`, `miami_drive.ps.hlsl`, `light_cycle.ps.hlsl`, `crt_vhs.ps.hlsl`);
 - [`img/`](img/) — скриншоты сцен на рабочем столе;
 - [`app.manifest`](app.manifest) — совместимость Windows 8/10/11 и `PerMonitorV2` DPI;

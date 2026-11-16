@@ -22,6 +22,11 @@ namespace NeonHorizonWallpaper
             bool openPreview = false;
             bool previewOnly = false;
             bool exitExisting = false;
+            bool checkUpdateCli = false;
+            bool applyUpdate = false;
+            int applyParentPid = 0;
+            string applyTargetExe = null;
+            string updatedVersion = null;
             string testRenderPath = null;
             string testSceneId = null;
             int testW = 0;
@@ -34,6 +39,22 @@ namespace NeonHorizonWallpaper
                 else if (string.Equals(a, "--preview", StringComparison.OrdinalIgnoreCase)) openPreview = true;
                 else if (string.Equals(a, "--preview-only", StringComparison.OrdinalIgnoreCase)) { previewOnly = true; openPreview = true; }
                 else if (string.Equals(a, "--exit", StringComparison.OrdinalIgnoreCase) || string.Equals(a, "--quit", StringComparison.OrdinalIgnoreCase)) exitExisting = true;
+                else if (string.Equals(a, "--check-update", StringComparison.OrdinalIgnoreCase)) checkUpdateCli = true;
+                else if (string.Equals(a, "--updated", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                {
+                    updatedVersion = args[++i];
+                }
+                else if (string.Equals(a, "--apply-update", StringComparison.OrdinalIgnoreCase) && i + 2 < args.Length)
+                {
+                    int pidParsed;
+                    if (int.TryParse(args[i + 1], out pidParsed))
+                    {
+                        applyUpdate = true;
+                        applyParentPid = pidParsed;
+                        applyTargetExe = args[i + 2];
+                        i += 2;
+                    }
+                }
                 else if (string.Equals(a, "--test-render", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
                 {
                     testRenderPath = args[++i];
@@ -55,10 +76,21 @@ namespace NeonHorizonWallpaper
                 }
             }
 
+            if (applyUpdate && !string.IsNullOrEmpty(applyTargetExe))
+            {
+                return UpdateManager.RunApplyUpdateWorker(applyParentPid, applyTargetExe, openSettings);
+            }
+
             if (!string.IsNullOrEmpty(testRenderPath))
             {
                 AttachConsole(-1);
                 return RunOffscreenRenderTest(testRenderPath, testSceneId, testW, testH);
+            }
+
+            if (checkUpdateCli)
+            {
+                AttachConsole(-1);
+                return RunUpdateCheckCli();
             }
 
             if (exitExisting)
@@ -89,20 +121,41 @@ namespace NeonHorizonWallpaper
                         return 0;
                     }
 
-                    return RunApplication(openSettings, openPreview, false);
+                    UpdateManager.CleanupAfterStartup(Application.ExecutablePath);
+                    return RunApplication(openSettings, openPreview, false, updatedVersion);
                 }
             }
 
-            return RunApplication(openSettings, openPreview, true);
+            return RunApplication(openSettings, openPreview, true, updatedVersion);
         }
 
-        private static int RunApplication(bool openSettings, bool openPreview, bool previewOnly)
+        private static int RunApplication(bool openSettings, bool openPreview, bool previewOnly, string updatedVersion)
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            TrayApplication app = new TrayApplication(openSettings, openPreview, previewOnly);
+            TrayApplication app = new TrayApplication(openSettings, openPreview, previewOnly, updatedVersion);
             Application.Run(app);
+            return 0;
+        }
+
+        private static int RunUpdateCheckCli()
+        {
+            UpdateCheckResult res = UpdateManager.CheckForUpdates(true);
+            Console.WriteLine("PLATFORM=" + UpdateManager.PlatformId);
+            Console.WriteLine("CURRENT_VERSION=" + res.CurrentVersion);
+            if (!res.Success)
+            {
+                Console.Error.WriteLine("CHECK_FAIL=" + res.ErrorMessage);
+                return 2;
+            }
+            if (res.LatestRelease != null)
+            {
+                Console.WriteLine("LATEST_TAG=" + res.LatestRelease.TagName);
+                Console.WriteLine("LATEST_VERSION=" + res.LatestRelease.Version);
+                Console.WriteLine("LATEST_ASSET=" + (res.LatestRelease.BinaryAsset != null ? res.LatestRelease.BinaryAsset.Name : "none"));
+            }
+            Console.WriteLine("UPDATE_AVAILABLE=" + res.UpdateAvailable);
             return 0;
         }
 
