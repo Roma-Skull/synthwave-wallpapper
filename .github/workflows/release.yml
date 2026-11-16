@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Windows release tag (e.g. windows-v1.1.0)'
+        description: 'Windows release tag (e.g. windows-v1.2.0)'
         required: true
-        default: 'windows-v1.1.0'
+        default: 'windows-v1.2.0'
 
 permissions:
   contents: write
@@ -64,19 +64,43 @@ jobs:
           $man = "dist/manifest-windows.json"
           $notesPath = Join-Path $env:RUNNER_TEMP 'release_notes.md'
           $lines = @(
-            "## Neon Horizon — Windows Live Desktop Wallpaper (v$ver)",
-            "",
-            "Платформа: **Windows 10 / Windows 11 (включая 24H2+)** — нативный Direct3D 11 + DirectComposition + HLSL рендер.",
-            "",
-            "- Четыре процедурные сцены: **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.",
-            "- Двухпроходный CRT/VHS-шейдер с поддержкой произвольных соотношений сторон и DPI.",
-            "- Встроенный модуль автообновления из GitHub Releases с проверкой SHA-256.",
-            "",
-            "### Загрузка и запуск",
-            "- Скачайте **`NeonHorizonWallpaper-windows.exe`** (одиночный автономный файл) или **`NeonHorizonWallpaper-v$ver-windows.zip`**.",
-            "- Запустите — иконка появится в системном трее (двойной клик открывает настройки)."
+            "## Neon Horizon — Windows Live Desktop Wallpaper (v$ver)"
+            ''
+            'Нативные живые обои для рабочего стола **Windows 10 / Windows 11 (включая 24H2+)** напрямую на **Direct3D 11 + DirectComposition + HLSL** — без браузерного движка и сторонних лаунчеров.'
+            ''
+            "### Что нового в v$ver"
+            '- **Новая сцена — Outrun Cycle (`outrun_cycle`):** светоцикл движется слева направо на фоне звёздного сине-розового неба, золотого Outrun-солнца с полосами, медленных триангулированных неоново-голубых гор и быстро бегущей ярко-розовой перспективной сетки с отражением.'
+            '- **Выпадающий список сцен:** в окне настроек кнопки выбора заменены на компактный выпадающий список с адаптацией под любой DPI и масштаб текста.'
+            '- **Единый силуэт гонщика и байка:** в сценах **Light Cycle** и **Outrun Cycle** наездник и мотоцикл объединены общим тёмным металлизированным цветом, а неоновые линии наездника плавно вписаны в контур байка.'
+            ''
+            '### Основные возможности'
+            '- **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.'
+            '- **Двухпроходный CRT/VHS-шейдер:** бочкообразный изгиб экрана, чересстрочный сканлайн и RGB-решётка с привязкой к DPI, Bloom-свечение, VHS-глитчи и виньетка.'
+            '- **Любые соотношения сторон:** `16:9`, `16:10`, `21:9`, `32:9`, `4:3`, `1:1`, портретные `9:16`, `9:21` и мультимониторность.'
+            '- **Автообновление и экономия ресурсов:** `30 FPS` по умолчанию, автопауза в полноэкранных играх/приложениях и встроенный апдейтер через GitHub Releases с проверкой SHA-256.'
+            ''
+            '### Загрузка и запуск'
+            "- Скачайте **`NeonHorizonWallpaper-windows.exe`** (одиночный автономный файл) или **`NeonHorizonWallpaper-v$ver-windows.zip`**."
+            '- Запустите — иконка появится в системном трее (двойной клик открывает панель настроек).'
           )
-          [System.IO.File]::WriteAllLines($notesPath, $lines)
-          gh release create $tag $zip $exe $sha $man `
-            --title "Neon Horizon Wallpaper v$ver [Windows]" `
-            --notes-file $notesPath
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllLines($notesPath, $lines, $utf8NoBom)
+
+          $releaseTitle = "Neon Horizon Wallpaper v$ver [Windows]"
+          $oldEap = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          try {
+            gh release view $tag 2>$null | Out-Null
+            $releaseExists = ($LASTEXITCODE -eq 0)
+          } finally {
+            $ErrorActionPreference = $oldEap
+          }
+
+          if ($releaseExists) {
+            gh release upload $tag $zip $exe $sha $man --clobber
+            gh release edit $tag --title $releaseTitle --notes-file $notesPath
+          } else {
+            gh release create $tag $zip $exe $sha $man `
+              --title $releaseTitle `
+              --notes-file $notesPath
+          }
