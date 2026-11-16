@@ -41,6 +41,7 @@ namespace NeonHorizonWallpaper
         public bool Animate { get; set; }
         public int GridSpeed { get; set; }
         public int TargetFps { get; set; }
+        public string RenderQuality { get; set; }
         public bool PauseOnFullscreen { get; set; }
         public bool AutoCheckUpdates { get; set; }
 
@@ -63,7 +64,8 @@ namespace NeonHorizonWallpaper
             Vignette = 48;
             Animate = true;
             GridSpeed = 100;
-            TargetFps = 30;
+            TargetFps = 24;
+            RenderQuality = "auto";
             PauseOnFullscreen = true;
             AutoCheckUpdates = true;
         }
@@ -84,6 +86,7 @@ namespace NeonHorizonWallpaper
             copy.Animate = Animate;
             copy.GridSpeed = GridSpeed;
             copy.TargetFps = TargetFps;
+            copy.RenderQuality = RenderQuality;
             copy.PauseOnFullscreen = PauseOnFullscreen;
             copy.AutoCheckUpdates = AutoCheckUpdates;
             return copy;
@@ -102,9 +105,21 @@ namespace NeonHorizonWallpaper
             Sweep = Clamp(Sweep, 0, 100);
             Vignette = Clamp(Vignette, 0, 100);
             GridSpeed = Clamp(GridSpeed, 25, 250);
-            if (TargetFps != 30 && TargetFps != 60 && TargetFps != 120 && TargetFps != 0)
+            if (TargetFps != 24 && TargetFps != 30 && TargetFps != 60 && TargetFps != 120 && TargetFps != 0)
             {
-                TargetFps = 30;
+                TargetFps = 24;
+            }
+            if (string.IsNullOrEmpty(RenderQuality) ||
+                (!string.Equals(RenderQuality, "auto", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(RenderQuality, "native", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(RenderQuality, "balanced", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(RenderQuality, "eco", StringComparison.OrdinalIgnoreCase)))
+            {
+                RenderQuality = "auto";
+            }
+            else
+            {
+                RenderQuality = RenderQuality.ToLowerInvariant();
             }
             if (string.IsNullOrEmpty(Preset))
             {

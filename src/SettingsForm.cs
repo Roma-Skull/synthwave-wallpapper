@@ -250,6 +250,7 @@ namespace NeonHorizonWallpaper
         private CheckBox _chkAutoUpdate;
         private ComboBox _cmbScene;
         private ComboBox _cmbFps;
+        private ComboBox _cmbQuality;
         private Label _lblStatus;
         private Label _lblVersion;
         private Button _btnPause;
@@ -528,8 +529,8 @@ namespace NeonHorizonWallpaper
                 int chkUpdW = chkUpdTmp.GetPreferredSize(Size.Empty).Width;
 
                 string verStr = "v" + UpdateManager.GetCurrentVersion().Normalized;
-                int lblFpsW = MeasureSingleLine(g, "FPS limit:", bodyFont).Width;
-                int cmbMinW = Math.Max(S(124), MeasureSingleLine(g, "Monitor VSync", bodyFont).Width + S(32));
+                int lblFpsW = Math.Max(MeasureSingleLine(g, "FPS limit:", bodyFont).Width, MeasureSingleLine(g, "Quality:", bodyFont).Width);
+                int cmbMinW = Math.Max(S(142), MeasureSingleLine(g, "Auto (5K/4K opt)", bodyFont).Width + S(32));
                 int btnPauseW = Math.Max(S(80), MeasureSingleLine(g, "Resume", smallBoldFont).Width + btnPadX);
                 int btnUpdateW = Math.Max(
                     S(104),
@@ -740,7 +741,7 @@ namespace NeonHorizonWallpaper
                 _cmbFps.ForeColor = ColTextMain;
                 _cmbFps.FlatStyle = FlatStyle.Flat;
                 _cmbFps.Font = bodyFont;
-                _cmbFps.Items.AddRange(new object[] { "30 FPS", "60 FPS", "120 FPS", "Monitor VSync" });
+                _cmbFps.Items.AddRange(new object[] { "24 FPS", "30 FPS", "60 FPS", "120 FPS", "Monitor VSync" });
                 _cmbFps.Width = cmbMinW;
                 int cmbH = _cmbFps.PreferredHeight;
 
@@ -758,11 +759,12 @@ namespace NeonHorizonWallpaper
                 _cmbFps.SelectedIndexChanged += delegate
                 {
                     if (_updatingUi) return;
-                    int fps = 30;
-                    if (_cmbFps.SelectedIndex == 0) fps = 30;
-                    else if (_cmbFps.SelectedIndex == 1) fps = 60;
-                    else if (_cmbFps.SelectedIndex == 2) fps = 120;
-                    else if (_cmbFps.SelectedIndex == 3) fps = 0;
+                    int fps = 24;
+                    if (_cmbFps.SelectedIndex == 0) fps = 24;
+                    else if (_cmbFps.SelectedIndex == 1) fps = 30;
+                    else if (_cmbFps.SelectedIndex == 2) fps = 60;
+                    else if (_cmbFps.SelectedIndex == 3) fps = 120;
+                    else if (_cmbFps.SelectedIndex == 4) fps = 0;
                     PatchSetting(delegate(AppSettings s) { s.TargetFps = fps; }, true);
                 };
                 perfCard.Controls.Add(_cmbFps);
@@ -776,6 +778,39 @@ namespace NeonHorizonWallpaper
                 perfCard.Controls.Add(_btnPause);
 
                 py += fpsRowH + S(8);
+
+                _cmbQuality = new ComboBox();
+                _cmbQuality.DropDownStyle = ComboBoxStyle.DropDownList;
+                _cmbQuality.BackColor = ColBgElev;
+                _cmbQuality.ForeColor = ColTextMain;
+                _cmbQuality.FlatStyle = FlatStyle.Flat;
+                _cmbQuality.Font = bodyFont;
+                _cmbQuality.Items.AddRange(new object[] { "Auto (5K/4K opt)", "Native (100%)", "Balanced (75%)", "Eco (60%)" });
+                _cmbQuality.Width = cmbMinW;
+
+                int qualRowH = Math.Max(cmbH, MeasureSingleLine(g, "Quality:", bodyFont).Height);
+                Label lblQual = new Label();
+                lblQual.Text = "Quality:";
+                lblQual.ForeColor = ColTextMuted;
+                lblQual.Font = bodyFont;
+                lblQual.AutoSize = true;
+                int lblQualH = MeasureSingleLine(g, "Quality:", bodyFont).Height;
+                lblQual.Location = new Point(cardPadX, py + (qualRowH - lblQualH) / 2);
+                perfCard.Controls.Add(lblQual);
+
+                _cmbQuality.Location = new Point(cardPadX + lblFpsW + S(10), py + (qualRowH - cmbH) / 2);
+                _cmbQuality.SelectedIndexChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    string q = "auto";
+                    if (_cmbQuality.SelectedIndex == 1) q = "native";
+                    else if (_cmbQuality.SelectedIndex == 2) q = "balanced";
+                    else if (_cmbQuality.SelectedIndex == 3) q = "eco";
+                    PatchSetting(delegate(AppSettings s) { s.RenderQuality = q; }, true);
+                };
+                perfCard.Controls.Add(_cmbQuality);
+
+                py += qualRowH + S(8);
 
                 _chkPauseFs = chkPauseTmp;
                 _chkPauseFs.Location = new Point(cardPadX, py);
@@ -1019,10 +1054,16 @@ namespace NeonHorizonWallpaper
                 _sldGridSpeed.Value = s.GridSpeed;
                 _valGridSpeed.Text = s.GridSpeed + "%";
 
-                if (s.TargetFps == 30) _cmbFps.SelectedIndex = 0;
-                else if (s.TargetFps == 60) _cmbFps.SelectedIndex = 1;
-                else if (s.TargetFps == 120) _cmbFps.SelectedIndex = 2;
-                else _cmbFps.SelectedIndex = 3;
+                if (s.TargetFps == 24) _cmbFps.SelectedIndex = 0;
+                else if (s.TargetFps == 30) _cmbFps.SelectedIndex = 1;
+                else if (s.TargetFps == 60) _cmbFps.SelectedIndex = 2;
+                else if (s.TargetFps == 120) _cmbFps.SelectedIndex = 3;
+                else _cmbFps.SelectedIndex = 4;
+
+                if (string.Equals(s.RenderQuality, "native", StringComparison.OrdinalIgnoreCase)) _cmbQuality.SelectedIndex = 1;
+                else if (string.Equals(s.RenderQuality, "balanced", StringComparison.OrdinalIgnoreCase)) _cmbQuality.SelectedIndex = 2;
+                else if (string.Equals(s.RenderQuality, "eco", StringComparison.OrdinalIgnoreCase)) _cmbQuality.SelectedIndex = 3;
+                else _cmbQuality.SelectedIndex = 0;
 
                 RefreshSceneSelection(s.Scene);
                 RefreshPresetButtons(s.Preset);
