@@ -50,6 +50,22 @@ android {
                 keyPassword System.getenv('ANDROID_KEY_PASSWORD')
             } else {
                 initWith signingConfigs.debug
+                def dbgKs = signingConfigs.debug.storeFile
+                if (dbgKs != null && !dbgKs.exists()) {
+                    dbgKs.parentFile?.mkdirs()
+                    def exit = new ProcessBuilder(
+                            'keytool', '-genkeypair', '-noprompt',
+                            '-keystore', dbgKs.absolutePath,
+                            '-storepass', signingConfigs.debug.storePassword ?: 'android',
+                            '-alias', signingConfigs.debug.keyAlias ?: 'androiddebugkey',
+                            '-keypass', signingConfigs.debug.keyPassword ?: 'android',
+                            '-keyalg', 'RSA', '-keysize', '2048', '-validity', '10000',
+                            '-dname', 'CN=Android Debug,O=Android,C=US'
+                    ).inheritIO().start().waitFor()
+                    if (exit != 0) {
+                        throw new GradleException("Failed to generate fallback debug keystore at ${dbgKs} (exit=${exit})")
+                    }
+                }
             }
         }
     }
