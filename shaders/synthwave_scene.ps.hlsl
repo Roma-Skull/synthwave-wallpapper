@@ -133,8 +133,8 @@ float4 main(PSIn input) : SV_Target {
 
     float aspect = uResolution.x / max(1.0, uResolution.y);
     float horY = 0.44;
-    float viewH = max(1.0, 0.95 / max(0.35, aspect));
-    float pxScale = viewH / min(uResolution.x, uResolution.y);
+    float viewH = max(1.0, 0.95 / max(0.15, aspect));
+    float pxScale = viewH / max(1.0, uResolution.y);
     float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.062);
 

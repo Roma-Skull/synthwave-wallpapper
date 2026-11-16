@@ -40,8 +40,10 @@ float4 main(PSIn input) : SV_Target {
     float2 centered = vUv * 2.0 - 1.0;
     float2 halfRes = uResolution * 0.5;
     float minDim = max(1.0, min(uResolution.x, uResolution.y));
-    float aspect = clamp(uResolution.x / max(1.0, uResolution.y), 0.55, 2.4);
+    float rawAspect = uResolution.x / max(1.0, uResolution.y);
+    float aspect = clamp(rawAspect, 0.20, 6.5);
     float sqAspect = sqrt(aspect);
+    float wideScaleX = min(1.0, 1.7778 / max(1.0, rawAspect));
 
     // Aspect-balanced CRT barrel warp: edge midpoints stay anchored while corners curve cleanly
     float k = uCurvature * 0.048;
@@ -76,7 +78,7 @@ float4 main(PSIn input) : SV_Target {
         float trackPos = frac(t * 0.12);
         sweepSigned = (1.0 - sampleUv.y) - (1.0 - trackPos);
         float distTrack = abs(sweepSigned);
-        float sweepScale = min(1.0, max(0.50, aspect));
+        float sweepScale = min(1.0, max(0.25, aspect));
         float sweepHalo = ss(0.085 * sweepScale, 0.0, distTrack);
         float sweepCore = ss(0.020 * sweepScale, 0.0, distTrack);
         sweepMask = (sweepHalo * 0.45 + sweepCore * 0.85) * uSweep;
@@ -85,12 +87,12 @@ float4 main(PSIn input) : SV_Target {
     if (uVhs > 0.001) {
         float glSampleY = 1.0 - sampleUv.y;
         float wave = sin(glSampleY * 42.0 + t * 5.2) * cos(glSampleY * 13.0 - t * 2.1);
-        sampleUv.x += (wave * 0.0014 + sin(glSampleY * 160.0 + t * 28.0) * 0.0045 * sweepMask) * uVhs;
+        sampleUv.x += (wave * 0.0014 + sin(glSampleY * 160.0 + t * 28.0) * 0.0045 * sweepMask) * uVhs * wideScaleX;
     }
 
     // Chromatic RGB split along edges & VHS tape shift
     float chroma = uVhs * (0.0009 + 0.0038 * pow(max(1e-5, length(centered)), 1.35)) + sweepMask * uVhs * 0.0045;
-    float2 chromaVec = float2(chroma, -chroma * 0.12);
+    float2 chromaVec = float2(chroma * wideScaleX, -chroma * 0.12 * min(1.0, rawAspect));
     float3 baseCol;
     if (chroma > 0.0001) {
         baseCol.r = sampleScene(sampleUv + chromaVec).r;
@@ -152,7 +154,8 @@ float4 main(PSIn input) : SV_Target {
         baseCol *= max(0.08, vig);
 
         float2 glCrtUv = float2(crtUv.x, 1.0 - crtUv.y);
-        float sheen = exp(-pow(length((glCrtUv - float2(0.18, 0.85)) * float2(1.4, 2.2)), 2.0) * 3.5);
+        float sheenAspect = clamp(rawAspect / 1.7778, 0.70, 2.2);
+        float sheen = exp(-pow(length((glCrtUv - float2(0.18, 0.85)) * float2(1.4 * sheenAspect, 2.2)), 2.0) * 3.5);
         baseCol += float3(0.18, 0.28, 0.36) * sheen * (0.08 * uVignette + 0.03 * uCurvature);
     }
 
