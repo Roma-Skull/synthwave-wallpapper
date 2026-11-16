@@ -62,7 +62,7 @@ namespace NeonHorizonWallpaper
             Vignette = 48;
             Animate = true;
             GridSpeed = 100;
-            TargetFps = 60;
+            TargetFps = 30;
             PauseOnFullscreen = true;
         }
 
@@ -101,7 +101,7 @@ namespace NeonHorizonWallpaper
             GridSpeed = Clamp(GridSpeed, 25, 250);
             if (TargetFps != 30 && TargetFps != 60 && TargetFps != 120 && TargetFps != 0)
             {
-                TargetFps = 60;
+                TargetFps = 30;
             }
             if (string.IsNullOrEmpty(Preset))
             {

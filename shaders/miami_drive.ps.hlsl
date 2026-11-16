@@ -250,12 +250,12 @@ void evalOncomingVehicle(
     float laneWorldX = laneChoice < 0.5 ? -0.315 : -0.110;
     laneWorldX += (rnd.w - 0.5) * 0.022;
 
-    float invZ = 1.0 / max(0.14, zVeh);
+    float invZ = 1.0 / max(0.05, zVeh);
     float bounce = sin(time * 8.5 + slotIdx * 4.3) * 0.0012 * invZ;
     float2 anchor = float2(laneWorldX * invZ, -0.26 * invZ + bounce);
 
     float halfW = (isTruck > 0.5 ? 0.092 : 0.076) * invZ;
-    float maxH = (isTruck > 0.5 ? 0.245 : 0.095) * invZ;
+    float maxH = (isTruck > 0.5 ? 0.215 : 0.095) * invZ;
 
     // Quick bounding-box reject (wide enough that shadow & headlight glow fade completely to 0 inside AABB)
     if (p.x < anchor.x - halfW * 3.0 || p.x > anchor.x + halfW * 3.0 ||
@@ -279,15 +279,15 @@ void evalOncomingVehicle(
 
     if (isTruck > 0.5) {
         // --- 80s Synthwave Semi-Truck (Фура) ---
-        // Tall trailer box behind the cab
-        float dTrailer = sdRoundedBox(q - float2(0.0, 0.125), float2(0.088, 0.100), 0.008);
+        // Tall trailer box behind the cab (top kept below camera eye height so it clears portrait viewport cleanly)
+        float dTrailer = sdRoundedBox(q - float2(0.0, 0.108), float2(0.088, 0.084), 0.008);
         float trailerMask = 1.0 - ss(-localPx, localPx, dTrailer);
         if (trailerMask > 0.001) {
             float3 trCol = float3(0.022, 0.010, 0.062);
             float trEdge = ss(localPx * 3.0, 0.0, abs(dTrailer));
             trCol += float3(1.0, 0.18, 0.65) * trEdge * 0.45;
             // Top trailer marker lights (left, center, right)
-            float dTopMarks = min(length(q - float2(-0.072, 0.214)), min(length(q - float2(0.0, 0.214)), length(q - float2(0.072, 0.214))));
+            float dTopMarks = min(length(q - float2(-0.072, 0.180)), min(length(q - float2(0.0, 0.180)), length(q - float2(0.072, 0.180))));
             trCol += float3(1.0, 0.55, 0.18) * exp(-dTopMarks * 180.0) * 0.9;
             col = lerp(col, trCol, trailerMask);
         }
@@ -555,12 +555,15 @@ float4 main(PSIn input) : SV_Target {
 
     float aspect = uResolution.x / max(1.0, uResolution.y);
     float horY = 0.43;
-    float pxScale = 1.0 / min(uResolution.x, uResolution.y);
-    float2 p = float2((glUv.x - 0.5) * max(1.05, aspect), glUv.y - horY);
+    // Isotropic camera: on landscape (aspect >= 0.95) viewH = 1.0 (identical framing);
+    // on portrait monitors (aspect < 0.95) viewH scales vertically to keep 1:1 pixel proportions without clipping road/car.
+    float viewH = max(1.0, 0.95 / max(0.35, aspect));
+    float pxScale = viewH / uResolution.y;
+    float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.088);
 
     // Precompute perspective road coordinates in uniform control flow
-    float yFloor = max(0.0022, horY - glUv.y);
+    float yFloor = max(0.0022, -p.y);
     float depth = 0.26 / yFloor;
     float worldX = p.x * depth;
     float driveSpeed = 3.1;
@@ -573,7 +576,7 @@ float4 main(PSIn input) : SV_Target {
     float3 skyTop = float3(0.039, 0.020, 0.114);
     float3 skyMid = float3(0.145, 0.039, 0.260);
     float3 skyHor = float3(0.410, 0.078, 0.310);
-    float tSky = clamp(p.y / (1.0 - horY), 0.0, 1.0);
+    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
     float3 col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
     col = lerp(col, skyTop, ss(0.30, 0.92, tSky));
 
@@ -591,7 +594,7 @@ float4 main(PSIn input) : SV_Target {
     col += float3(1.0, 0.18, 0.50) * (corona + wideGlow);
 
     if (p.y >= -0.002) {
-        col += renderStarfield(float2((glUv.x - 0.5) * max(1.0, aspect), glUv.y), p.y, uTime)
+        col += renderStarfield(float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH), tSky * (1.0 - horY), uTime)
             * ss(sunR * 0.95, sunR * 1.45, sunDist);
 
         float discMask = (1.0 - ss(sunR - pxScale * 1.5, sunR + pxScale * 1.5, sunDist))
@@ -617,21 +620,21 @@ float4 main(PSIn input) : SV_Target {
         col = renderMiamiSkyline(p, pxScale, col, uTime);
     } else {
         // 4. Widened 4-Lane Miami Boulevard Street (Road + Curbs + Side Grid)
-        float yFloorRaw = horY - glUv.y;
+        float yFloorRaw = -p.y;
         float roadHalfW = 0.420;
         float sidewalkW = 0.550;
         float absX = abs(worldX);
 
         float3 floorNear = float3(0.032, 0.014, 0.078);
         float3 floorHor = float3(0.115, 0.028, 0.215);
-        col = lerp(floorHor, floorNear, ss(0.0, 0.35, yFloorRaw));
+        col = lerp(floorHor, floorNear, ss(0.0, 0.35 * viewH, yFloorRaw));
 
         float distFade = ss(0.004, 0.028, yFloorRaw);
 
         if (absX < roadHalfW) {
             float roadWave = sin(worldZ * 3.8 + sin(worldX * 14.0)) * 0.5 + 0.5;
             float asphaltSpec = exp(-absX * 4.2) * (0.65 + 0.35 * roadWave);
-            col += float3(0.55, 0.12, 0.36) * asphaltSpec * ss(0.42, 0.0, yFloorRaw) * 0.62;
+            col += float3(0.55, 0.12, 0.36) * asphaltSpec * ss(0.42 * viewH, 0.0, yFloorRaw) * 0.62;
 
             float sheenBand = 0.5 + 0.5 * sin(worldZ * 1.9);
             col += float3(0.08, 0.02, 0.14) * sheenBand * 0.22 * distFade;
@@ -657,7 +660,7 @@ float4 main(PSIn input) : SV_Target {
             float dLine = min(gFrac.x, gFrac.y);
             float lineCore = 1.0 - min(dLine, 1.0);
             float lineHalo = exp(-dLine * 0.75) * 0.22;
-            float3 sideGridCol = lerp(float3(0.95, 0.18, 0.72), float3(0.0, 0.92, 1.0), exp(-yFloorRaw * 5.0));
+            float3 sideGridCol = lerp(float3(0.95, 0.18, 0.72), float3(0.0, 0.92, 1.0), exp(-yFloorRaw * 5.0 / viewH));
             col += sideGridCol * (lineCore * 0.78 + lineHalo) * distFade;
         }
 
@@ -669,12 +672,12 @@ float4 main(PSIn input) : SV_Target {
     }
 
     // 5. Electric Cyan Horizon Beam
-    float horGlow = exp(-abs(glUv.y - horY) * 130.0);
-    float horCore = exp(-abs(glUv.y - horY) * 480.0);
+    float horGlow = exp(-abs(p.y) * 130.0);
+    float horCore = exp(-abs(p.y) * 480.0);
     col += float3(0.15, 0.94, 1.0) * (horGlow * 0.46 + horCore * 0.82);
 
     // 6. Back-to-Front Palm Trees, Streetlights & Oncoming Traffic (exact depth interleaving)
-    // Palms extend down to zMin = 0.16 so they exit completely past the screen edge before wrapping!
+    // Palms extend down to zMin = 0.16 and vehicles down to zMin = 0.06 so both exit completely past the portrait/landscape viewport before wrapping.
     float stepZ = 1.45;
     float scrollCycles = (uGridTime * driveSpeed) / stepZ;
     float zFrac = frac(scrollCycles);
@@ -686,7 +689,7 @@ float4 main(PSIn input) : SV_Target {
     float trafficCycles = (uGridTime * trafficSpeed) / trafficStep;
     float tFrac = frac(trafficCycles);
     float baseVehIdx = floor(trafficCycles);
-    float zMinVeh = 0.18;
+    float zMinVeh = 0.06;
 
     float prevZ = 1e6;
     [loop]
@@ -695,7 +698,7 @@ float4 main(PSIn input) : SV_Target {
 
         // Draw any oncoming vehicles between prevZ and zPalm (back-to-front)
         [loop]
-        for (int v = 7; v >= 0; v--) {
+        for (int v = 8; v >= 0; v--) {
             float zVeh = zMinVeh + (float(v) + (1.0 - tFrac)) * trafficStep;
             if (zVeh < prevZ && zVeh >= zPalm) {
                 evalOncomingVehicle(p, baseVehIdx + float(v), zVeh, pxScale, uTime, col);
@@ -715,7 +718,7 @@ float4 main(PSIn input) : SV_Target {
 
     // Draw any oncoming vehicle closer than the nearest palm
     [loop]
-    for (int v2 = 7; v2 >= 0; v2--) {
+    for (int v2 = 8; v2 >= 0; v2--) {
         float zVeh2 = zMinVeh + (float(v2) + (1.0 - tFrac)) * trafficStep;
         if (zVeh2 < prevZ) {
             evalOncomingVehicle(p, baseVehIdx + float(v2), zVeh2, pxScale, uTime, col);

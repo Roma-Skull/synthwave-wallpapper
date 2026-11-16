@@ -384,8 +384,17 @@ namespace NeonHorizonWallpaper
             }
 
             Rectangle area = Screen.PrimaryScreen != null ? Screen.PrimaryScreen.WorkingArea : new Rectangle(0, 0, 1280, 720);
-            int w = Math.Min(1280, Math.Max(720, (int)(area.Width * 0.72)));
-            int h = Math.Min(720, Math.Max(420, (int)(w * 9.0 / 16.0)));
+            int maxW = Math.Max(240, area.Width - 40);
+            int maxH = Math.Max(240, area.Height - 60);
+            int w;
+            int h;
+            if (area.Height > area.Width) {
+                w = Math.Min(maxW, Math.Min(720, Math.Max(360, (int)(area.Width * 0.65))));
+                h = Math.Min(maxH, Math.Max(480, (int)(w * 16.0 / 9.0)));
+            } else {
+                w = Math.Min(maxW, Math.Min(1280, Math.Max(720, (int)(area.Width * 0.72))));
+                h = Math.Min(maxH, Math.Min(720, Math.Max(420, (int)(w * 9.0 / 16.0))));
+            }
             int x = area.X + (area.Width - w) / 2;
             int y = area.Y + (area.Height - h) / 2;
 

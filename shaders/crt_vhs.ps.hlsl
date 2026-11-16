@@ -76,8 +76,9 @@ float4 main(PSIn input) : SV_Target {
         float trackPos = frac(t * 0.12);
         sweepSigned = (1.0 - sampleUv.y) - (1.0 - trackPos);
         float distTrack = abs(sweepSigned);
-        float sweepHalo = ss(0.085, 0.0, distTrack);
-        float sweepCore = ss(0.020, 0.0, distTrack);
+        float sweepScale = min(1.0, max(0.50, aspect));
+        float sweepHalo = ss(0.085 * sweepScale, 0.0, distTrack);
+        float sweepCore = ss(0.020 * sweepScale, 0.0, distTrack);
         sweepMask = (sweepHalo * 0.45 + sweepCore * 0.85) * uSweep;
     }
 

@@ -133,12 +133,13 @@ float4 main(PSIn input) : SV_Target {
 
     float aspect = uResolution.x / max(1.0, uResolution.y);
     float horY = 0.44;
-    float pxScale = 1.0 / min(uResolution.x, uResolution.y);
-    float2 p = float2((glUv.x - 0.5) * max(1.05, aspect), glUv.y - horY);
+    float viewH = max(1.0, 0.95 / max(0.35, aspect));
+    float pxScale = viewH / min(uResolution.x, uResolution.y);
+    float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.062);
 
     // Precompute floor grid derivatives in uniform control flow
-    float yFloor = max(0.0022, horY - glUv.y);
+    float yFloor = max(0.0022, -p.y);
     float depth = 0.25 / yFloor;
     float worldX = p.x * depth * 1.15;
     float worldZ = depth - uGridTime * 1.45;
@@ -149,7 +150,7 @@ float4 main(PSIn input) : SV_Target {
     float3 skyTop = float3(0.0431, 0.0275, 0.0941);
     float3 skyMid = float3(0.088, 0.039, 0.195);
     float3 skyHor = float3(0.245, 0.055, 0.305);
-    float tSky = clamp(p.y / (1.0 - horY), 0.0, 1.0);
+    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
     float3 col = lerp(skyHor, skyMid, ss(0.0, 0.36, tSky));
     col = lerp(col, skyTop, ss(0.26, 0.92, tSky));
 
@@ -168,7 +169,9 @@ float4 main(PSIn input) : SV_Target {
     col += float3(1.0, 0.16, 0.52) * (corona + wideGlow);
 
     if (p.y >= -0.002) {
-        col += renderStarfield(float2((glUv.x - 0.5) * max(1.0, aspect), glUv.y), p.y, uTime)
+        float2 starCoord = float2(p.x, p.y + horY);
+        float starFade = ss(0.03, 0.24, tSky) * ss(0.98, 0.72, tSky);
+        col += renderStarfield(starCoord, 0.30, uTime) * (starFade / max(1e-4, ss(0.03, 0.24, 0.30) * ss(0.56, 0.40, 0.30)))
             * ss(sunR * 0.95, sunR * 1.45, sunDist);
 
         float discMask = (1.0 - ss(sunR - pxScale * 1.5, sunR + pxScale * 1.5, sunDist))
@@ -195,7 +198,7 @@ float4 main(PSIn input) : SV_Target {
         col = renderMountains(p, sunCenter, pxScale, col, uTime);
     } else {
         // 4. Infinite Forward-Scrolling Perspective Neon Grid
-        float yFloorRaw = horY - glUv.y;
+        float yFloorRaw = -p.y;
         float2 gFrac = abs(frac(gCoord - 0.5) - 0.5) / gDeriv;
         float dLine = min(gFrac.x, gFrac.y);
         float lineCore = 1.0 - min(dLine, 1.0);
@@ -205,21 +208,21 @@ float4 main(PSIn input) : SV_Target {
         // Floor ambient gradient + animated sun shimmer trail across the center grid
         float3 floorNear = float3(0.039, 0.018, 0.088);
         float3 floorHor = float3(0.095, 0.026, 0.205);
-        col = lerp(floorHor, floorNear, ss(0.0, 0.34, yFloorRaw));
+        col = lerp(floorHor, floorNear, ss(0.0, 0.34 * viewH, yFloorRaw));
 
-        float sunTrack = exp(-p.x * p.x * 16.0) * ss(0.42, 0.0, yFloorRaw);
+        float sunTrack = exp(-p.x * p.x * 16.0) * ss(0.42 * viewH, 0.0, yFloorRaw);
         float ripple = 0.85 + 0.15 * sin(worldZ * 2.2 + uGridTime * 2.6);
         col += float3(0.55, 0.12, 0.42) * sunTrack * 0.48 * ripple;
 
         float3 gridCyan = float3(0.0, 0.94, 1.0);
         float3 gridMag = float3(1.0, 0.18, 0.72);
-        float3 gridCol = lerp(gridMag, gridCyan, exp(-yFloorRaw * 5.2));
+        float3 gridCol = lerp(gridMag, gridCyan, exp(-yFloorRaw * 5.2 / viewH));
         col += gridCol * (lineCore * 0.95 + lineHalo) * distFade;
     }
 
     // 5. Electric Cyan Horizon Beam
-    float horGlow = exp(-abs(glUv.y - horY) * 140.0);
-    float horCore = exp(-abs(glUv.y - horY) * 520.0);
+    float horGlow = exp(-abs(p.y) * 140.0 / viewH);
+    float horCore = exp(-abs(p.y) * 520.0 / viewH);
     col += float3(0.0, 0.94, 1.0) * (horGlow * 0.52 + horCore * 0.85);
 
     return float4(saturate(col), 1.0);

@@ -529,7 +529,7 @@ namespace NeonHorizonWallpaper
             _cmbFps.SelectedIndexChanged += delegate
             {
                 if (_updatingUi) return;
-                int fps = 60;
+                int fps = 30;
                 if (_cmbFps.SelectedIndex == 0) fps = 30;
                 else if (_cmbFps.SelectedIndex == 1) fps = 60;
                 else if (_cmbFps.SelectedIndex == 2) fps = 120;

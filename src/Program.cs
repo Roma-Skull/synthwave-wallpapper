@@ -24,6 +24,8 @@ namespace NeonHorizonWallpaper
             bool exitExisting = false;
             string testRenderPath = null;
             string testSceneId = null;
+            int testW = 0;
+            int testH = 0;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -39,13 +41,24 @@ namespace NeonHorizonWallpaper
                     {
                         testSceneId = args[++i];
                     }
+                    int parsed;
+                    if (i + 1 < args.Length && int.TryParse(args[i + 1], out parsed))
+                    {
+                        testW = parsed;
+                        i++;
+                        if (i + 1 < args.Length && int.TryParse(args[i + 1], out parsed))
+                        {
+                            testH = parsed;
+                            i++;
+                        }
+                    }
                 }
             }
 
             if (!string.IsNullOrEmpty(testRenderPath))
             {
                 AttachConsole(-1);
-                return RunOffscreenRenderTest(testRenderPath, testSceneId);
+                return RunOffscreenRenderTest(testRenderPath, testSceneId, testW, testH);
             }
 
             if (exitExisting)
@@ -93,7 +106,7 @@ namespace NeonHorizonWallpaper
             return 0;
         }
 
-        private static int RunOffscreenRenderTest(string outputPath, string sceneId)
+        private static int RunOffscreenRenderTest(string outputPath, string sceneId, int reqWidth, int reqHeight)
         {
             D3D11Renderer renderer = new D3D11Renderer();
             string err;
@@ -105,8 +118,8 @@ namespace NeonHorizonWallpaper
 
             try
             {
-                int w = 1280;
-                int h = 720;
+                int w = reqWidth >= 64 ? reqWidth : 1280;
+                int h = reqHeight >= 64 ? reqHeight : 720;
                 AppSettings s = new AppSettings();
                 if (!string.IsNullOrEmpty(sceneId))
                 {
@@ -120,17 +133,11 @@ namespace NeonHorizonWallpaper
                     return 3;
                 }
 
-                // Sample key regions to validate shader visual output:
-                // 1) Top-center sky (y=40, x=640)
-                // 2) Sun disc upper-mid (y=295, x=640) -> sunCenter in bottom-up is horY(0.44)+0.062=0.502 => top-down y ~ 0.498*720 = 358, top of sun ~ 250
-                // 3) Horizon cyan beam (y=403, x=640) -> glUv.y = 0.44 => top-down y = (1 - 0.44)*720 = 403
-                // 4) Foreground floor (y=620, x=640)
-                // 5) Corner bezel (y=2, x=2)
                 PrintSample("CORNER_BEZEL", rgba, w, 2, 2);
-                PrintSample("SKY_TOP", rgba, w, 640, 40);
-                PrintSample("SUN_DISC", rgba, w, 640, 290);
-                PrintSample("HORIZON_BEAM", rgba, w, 640, 403);
-                PrintSample("GRID_FLOOR", rgba, w, 640, 620);
+                PrintSample("SKY_TOP", rgba, w, w / 2, Math.Max(1, (int)(h * 0.055)));
+                PrintSample("SUN_DISC", rgba, w, w / 2, Math.Max(1, (int)(h * 0.40)));
+                PrintSample("HORIZON_BEAM", rgba, w, w / 2, Math.Max(1, (int)(h * 0.56)));
+                PrintSample("GRID_FLOOR", rgba, w, w / 2, Math.Max(1, (int)(h * 0.86)));
 
                 // Save PNG preview image
                 using (Bitmap bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))

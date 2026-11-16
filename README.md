@@ -6,6 +6,14 @@
 
 ---
 
+## Скриншоты
+
+| Neon Horizon (`neon_horizon`) | Miami Sunset Drive (`miami_drive`) |
+| :---: | :---: |
+| ![Neon Horizon](img/horizon.png) | ![Miami Sunset Drive](img/car.png) |
+
+---
+
 ## Возможности
 
 - **Выбор из нескольких процедурных сцен (через панель настроек или меню в трее):**
@@ -19,8 +27,8 @@
   - виньетка и стеклянный блик.
 - **Поддержка Windows 11 24H2+ (Build 26100) и Windows 10 / 11 (Pre-24H2):**
   - автоматически определяет режим **Raised Desktop** (`Progman` + `DirectComposition` + Z-порядок под `SHELLDLL_DefView`) или классический `WorkerW`, чтобы обои отображались строго **за значками рабочего стола** и не мешали кликам.
-- **Мультимониторность и Per-Monitor DPI:** отдельный SwapChain и точный расчёт пропорций и сканлайнов для каждого экрана.
-- **Экономия ресурсов:** автоматическая пауза при запуске полноэкранных игр/приложений или блокировке экрана, ограничитель FPS (`30`, `60`, `120`, `Monitor VSync`), управление из системного трея.
+- **Мультимониторность, вертикальные экраны и Per-Monitor DPI:** отдельный SwapChain и изотропный расчёт пропорций и сканлайнов для горизонтальных и портретных (`9:16`, `10:16` и др.) мониторов.
+- **Экономия ресурсов:** автоматическая пауза при запуске полноэкранных игр/приложений или блокировке экрана, ограничитель FPS (по умолчанию `30 FPS`; доступны `30`, `60`, `120`, `Monitor VSync`), управление из системного трея.
 - **4 готовых пресета:** `Soft CRT`, `Outrun 84`, `VHS Tape`, `Minimal` + тонкие ползунки, скорость движения, автозапуск с Windows.
 
 ---
@@ -35,7 +43,7 @@
    - `NeonHorizonWallpaper.exe --preview` — дополнительно открыть отдельное окно предпросмотра;
    - `NeonHorizonWallpaper.exe --preview-only` — только окно предпросмотра (без встраивания в рабочий стол);
    - `NeonHorizonWallpaper.exe --exit` — корректно завершить работающий экземпляр;
-   - `NeonHorizonWallpaper.exe --test-render frame.png [miami_drive|neon_horizon]` — отрендерить один кадр выбранной сцены в PNG через GPU для проверки.
+   - `NeonHorizonWallpaper.exe --test-render frame.png [miami_drive|neon_horizon] [width height]` — отрендерить один кадр выбранной сцены в PNG через GPU для проверки.
 
 Настройки сохраняются в `AppData\Roaming\NeonHorizonWallpaper\settings.json` (`%APPDATA%\NeonHorizonWallpaper\settings.json`), а локальный диагностический лог пишется в `AppData\Local\NeonHorizonWallpaper\neon_horizon.log` (`%LOCALAPPDATA%\NeonHorizonWallpaper\neon_horizon.log`).
 
@@ -53,6 +61,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File package.ps1 -Version 1.0.0
 Структура проекта:
 - [`src/`](src/) — Win32/DesktopHost (24H2 + WorkerW), D3D11/DXGI/DirectComposition рендерер, окно настроек и трей;
 - [`shaders/`](shaders/) — HLSL-шейдеры (`fullscreen.vs.hlsl`, `synthwave_scene.ps.hlsl`, `miami_drive.ps.hlsl`, `crt_vhs.ps.hlsl`);
+- [`img/`](img/) — скриншоты сцен на рабочем столе;
 - [`app.manifest`](app.manifest) — совместимость Windows 8/10/11 и `PerMonitorV2` DPI;
 - [`build.ps1`](build.ps1) — предкомпилятор шейдеров (DXBC), генератор `.ico` и сборщик `NeonHorizonWallpaper.exe`;
 - [`package.ps1`](package.ps1) — сборщик дистрибутива в `dist/`.
