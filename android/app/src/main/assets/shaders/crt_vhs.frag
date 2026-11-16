@@ -3,6 +3,7 @@ precision highp float;
 precision highp int;
 
 uniform sampler2D sceneTex;
+uniform sampler2D bloomTex;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uCurvature;
@@ -99,24 +100,9 @@ void main() {
         baseCol = sampleScene(sampleUv);
     }
 
-    // Phosphor bloom glow from bright highlights (6 staggered taps)
+    // Phosphor bloom glow from pre-filtered 1/9-scene bloomTex (1 tap instead of 6 native taps)
     if (uBloom > 0.001) {
-        vec2 texel = (2.5 + uBloom * 8.5) / uResolution;
-        const vec2 bloomDirs[6] = vec2[6](
-            vec2( 1.000,  0.000) * 1.15,
-            vec2(-0.500,  0.866) * 1.15,
-            vec2(-0.500, -0.866) * 1.15,
-            vec2( 0.500,  0.866) * 2.35,
-            vec2(-1.000,  0.000) * 2.35,
-            vec2( 0.500, -0.866) * 2.35
-        );
-        vec3 glowAcc = vec3(0.0, 0.0, 0.0);
-        for (int i = 0; i < 6; i++) {
-            float w = (i < 3) ? 0.65 : 0.35;
-            vec3 s = sampleScene(sampleUv + bloomDirs[i] * texel);
-            glowAcc += max(vec3(0.0, 0.0, 0.0), s - 0.34) * w;
-        }
-        glowAcc /= 3.0;
+        vec3 glowAcc = textureLod(bloomTex, clamp(sampleUv, 0.001, 0.999), 0.0).rgb;
         vec3 bloomTint = glowAcc * vec3(1.06 + uVhs * 0.14, 1.0, 1.14 + uVhs * 0.16);
         baseCol = 1.0 - (1.0 - baseCol) * (1.0 - clamp(bloomTint * uBloom * 0.72, 0.0, 0.92));
     }
