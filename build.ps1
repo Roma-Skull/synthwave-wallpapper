@@ -182,6 +182,7 @@ $manifest = Join-Path $Root 'app.manifest'
 $vsShader = Join-Path $Root 'shaders\fullscreen.vs.hlsl'
 $sceneShader = Join-Path $Root 'shaders\synthwave_scene.ps.hlsl'
 $miamiShader = Join-Path $Root 'shaders\miami_drive.ps.hlsl'
+$cycleShader = Join-Path $Root 'shaders\light_cycle.ps.hlsl'
 $crtShader = Join-Path $Root 'shaders\crt_vhs.ps.hlsl'
 
 # 1b. Pre-compile HLSL shaders to DXBC bytecode so runtime startup is instantaneous (<5ms)
@@ -255,11 +256,13 @@ if (-not (Test-Path $BinShaderDir)) {
 $vsDxbc = Join-Path $BinShaderDir 'fullscreen.vs.dxbc'
 $sceneDxbc = Join-Path $BinShaderDir 'synthwave_scene.ps.dxbc'
 $miamiDxbc = Join-Path $BinShaderDir 'miami_drive.ps.dxbc'
+$cycleDxbc = Join-Path $BinShaderDir 'light_cycle.ps.dxbc'
 $crtDxbc = Join-Path $BinShaderDir 'crt_vhs.ps.dxbc'
 
 [HlslPrecompiler]::CompileToFile($vsShader, 'vs_5_0', $vsDxbc)
 [HlslPrecompiler]::CompileToFile($sceneShader, 'ps_5_0', $sceneDxbc)
 [HlslPrecompiler]::CompileToFile($miamiShader, 'ps_5_0', $miamiDxbc)
+[HlslPrecompiler]::CompileToFile($cycleShader, 'ps_5_0', $cycleDxbc)
 [HlslPrecompiler]::CompileToFile($crtShader, 'ps_5_0', $crtDxbc)
 
 $rspPath = Join-Path $env:TEMP 'neon_horizon_wallpaper_csc.rsp'
@@ -274,10 +277,12 @@ $rspLines = @(
     "/resource:`"$vsDxbc`",fullscreen.vs.dxbc"
     "/resource:`"$sceneDxbc`",synthwave_scene.ps.dxbc"
     "/resource:`"$miamiDxbc`",miami_drive.ps.dxbc"
+    "/resource:`"$cycleDxbc`",light_cycle.ps.dxbc"
     "/resource:`"$crtDxbc`",crt_vhs.ps.dxbc"
     "/resource:`"$vsShader`",fullscreen.vs.hlsl"
     "/resource:`"$sceneShader`",synthwave_scene.ps.hlsl"
     "/resource:`"$miamiShader`",miami_drive.ps.hlsl"
+    "/resource:`"$cycleShader`",light_cycle.ps.hlsl"
     "/resource:`"$crtShader`",crt_vhs.ps.hlsl"
     '/reference:System.dll'
     '/reference:System.Drawing.dll'

@@ -148,6 +148,12 @@ namespace NeonHorizonWallpaper
                 Id = "miami_drive",
                 DisplayName = "Miami Sunset Drive",
                 ShaderFile = "miami_drive.ps.hlsl"
+            },
+            new SceneDefinition
+            {
+                Id = "light_cycle",
+                DisplayName = "Light Cycle",
+                ShaderFile = "light_cycle.ps.hlsl"
             }
         };
 

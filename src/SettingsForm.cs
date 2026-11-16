@@ -381,7 +381,7 @@ namespace NeonHorizonWallpaper
             // Scene / Animation selector row
             int sceneCount = AppSettings.Scenes.Length;
             _sceneBtns = new Button[sceneCount];
-            int sGap = 8;
+            int sGap = sceneCount > 2 ? 6 : 8;
             int sBtnW = (contentW - sGap * (sceneCount - 1)) / sceneCount;
             for (int i = 0; i < sceneCount; i++)
             {
@@ -393,7 +393,7 @@ namespace NeonHorizonWallpaper
                 sBtn.FlatAppearance.BorderColor = Color.FromArgb(120, ColViolet);
                 sBtn.BackColor = ColBgCard;
                 sBtn.ForeColor = ColTextMuted;
-                sBtn.Font = new Font("Segoe UI", 9.0f, FontStyle.Bold);
+                sBtn.Font = new Font("Segoe UI", sceneCount > 2 ? 8.25f : 9.0f, FontStyle.Bold);
                 sBtn.Cursor = Cursors.Hand;
                 sBtn.Bounds = new Rectangle(margin + i * (sBtnW + sGap), y, sBtnW, 30);
                 sBtn.Tag = sd.Id;
