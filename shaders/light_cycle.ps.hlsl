@@ -353,6 +353,11 @@ void evalLightCycleAndRider(
     float dRearPeg = sdTaperedCapsule(b, float2(-0.345, 0.210), float2(-0.275, 0.205), 0.016, 0.012);
     dChassis = min(dChassis, min(dBarMount, dRearPeg));
 
+    // Fuse Synthwave rider directly into the obsidian bike body so rider & cycle share one cohesive silhouette & material
+    float dHelmet = 1.0;
+    float dRider = sdSynthwaveRider(b, dHelmet);
+    float dBodyFull = smin(dChassis, dRider, 0.014);
+
     // Hubless outer tire rims + recessed 3D metallic wheel barrels (centers remain hollow!)
     float dRearTire = max(dCenterRear - rRearOuter, -(dCenterRear - 0.190));
     float dFrontTire = max(dCenterFront - rFrontOuter, -(dCenterFront - 0.186));
@@ -370,12 +375,11 @@ void evalLightCycleAndRider(
         float innerBevel = sin(depthRing * 3.14159);
         float cyc = b.y > 0.26 ? 0.85 : 1.15;
         float3 steelCol = float3(0.042, 0.056, 0.095) * cyc + float3(0.08, 0.22, 0.34) * innerBevel;
-        // Subtle cyan bounce light inside rim nearest glowing tire ring
         steelCol += float3(0.04, 0.58, 0.85) * smoothstep(0.45, 1.0, depthRing) * 0.42;
         col = lerp(col, steelCol, barrelMask * 0.92);
     }
 
-    // Layer B: Dark Tire Sides & Glossy Obsidian Body Cowling with Reference Metallic Speculars
+    // Layer B: Dark Tire Sides & Unified Obsidian Body+Rider Silhouette with Matching Specular Highlights
     float tireMask = 1.0 - ss(-localPx, localPx, dTires);
     if (tireMask > 0.001) {
         float3 tireCol = float3(0.012, 0.012, 0.028);
@@ -386,27 +390,28 @@ void evalLightCycleAndRider(
             : lerp(col, tireCol, tireMask);
     }
 
-    float chassisMask = 1.0 - ss(-localPx, localPx, dChassis);
-    if (chassisMask > 0.001) {
+    float bodyMask = 1.0 - ss(-localPx, localPx, dBodyFull);
+    if (bodyMask > 0.001) {
         float3 bodyCol = float3(0.012, 0.018, 0.042);
 
-        // Gunmetal metallic specular along upper curves (tail crown, canopy wing, front nose dome)
-        float crownRim = ss(0.022, 0.0, abs(dChassis)) * ss(0.28, 0.54, b.y);
+        // Unified gunmetal metallic specular rim along bike curves & rider helmet/back/arm contour
+        float crownRim = ss(0.022, 0.0, abs(dBodyFull)) * ss(0.28, 0.58, b.y);
         float domeShine = exp(-length((b - float2(0.56, 0.48)) * float2(3.5, 9.0))) * 0.28;
         float tailShine = exp(-length((b - float2(-0.56, 0.49)) * float2(4.0, 12.0))) * 0.24;
-        bodyCol += float3(0.18, 0.28, 0.42) * (crownRim * 0.65 + domeShine + tailShine);
+        float helmShine = exp(-length((b - float2(0.24, 0.56)) * float2(7.0, 14.0))) * 0.22;
+        bodyCol += float3(0.18, 0.28, 0.42) * (crownRim * 0.68 + domeShine + tailShine + helmShine);
 
-        // Iconic electric-cyan metallic reflection along carved hip skirt below rear C-arch (matches reference!)
+        // Electric-cyan bounce reflection along carved hip skirt & tucked rider knee facing light rings
         float skirtGlow = exp(-length((b - float2(-0.27, 0.25)) * float2(7.0, 8.5)));
         float skirtRib = 0.70 + 0.30 * sin(b.x * 38.0 + b.y * 24.0);
         bodyCol += float3(0.04, 0.68, 0.96) * skirtGlow * skirtRib * 0.34;
 
-        // Warm subtle magenta sunset kiss on far rear edge
-        bodyCol += float3(0.42, 0.08, 0.34) * ss(-0.62, -0.82, b.x) * 0.22;
+        // Subtle warm sunset backlight kiss on rear tail shell
+        bodyCol += float3(0.42, 0.08, 0.34) * ss(-0.62, -0.82, b.x) * 0.20;
 
         col = isReflection > 0.5
-            ? lerp(col, col * 0.55 + bodyCol * 0.45, chassisMask * reflAtten * 0.8)
-            : lerp(col, bodyCol, chassisMask);
+            ? lerp(col, col * 0.55 + bodyCol * 0.45, bodyMask * reflAtten * 0.8)
+            : lerp(col, bodyCol, bodyMask);
     }
 
     // Layer C: Angled Recessed Core Engine / Circuit Bay (intricate glowing conduits inside bevelled housing!)
@@ -419,7 +424,6 @@ void evalLightCycleAndRider(
     float turbMask = 1.0 - ss(-localPx, localPx, dTurb);
     if (turbMask > 0.001) {
         float2 tp = tb / float2(0.128, 0.048);
-        // Dark housing cavity + glowing horizontal cyan circuit fins + vertical digital conduit notches
         float3 bayBg = float3(0.006, 0.016, 0.038);
         float conduitBars = step(0.15, sin(tp.y * 10.5)) * step(-0.78, tp.x) * step(tp.x, 0.78);
         float circuitGap = step(0.12, abs(frac(tp.x * 3.5 + tp.y * 0.8) - 0.5));
@@ -434,7 +438,7 @@ void evalLightCycleAndRider(
     col += float3(0.10, 0.45, 0.65) * turbRim * 0.45 * reflAtten;
     col += float3(0.0, 0.82, 1.0) * exp(-max(0.0, dTurb) * 18.0) * 0.44 * reflAtten;
 
-    // Layer D: Reference Neon Light Ribbons & Thick Hubless Wheel Light Rings (drawn behind the rider!)
+    // Layer D: Unified Neon Light Ribbons — Bike Fairing + Integrated Rider Circuit Flow + Wheel Light Rings
     float2 qRear = b - wRear;
     float2 qFront = b - wFront;
     float aRear = atan2(qRear.y, qRear.x);
@@ -449,21 +453,26 @@ void evalLightCycleAndRider(
     float frontCore = (1.0 - ss(0.015, 0.015 + localPx * 2.0, dFrontRing)) * spinFront;
     float frontGlow = exp(-dFrontRing * 26.0) * spinFront;
 
-    // 1) Rear cantilevered canopy C-arch looping smoothly into rear saddle cutout
+    // 1) Rear cantilevered canopy C-arch
     float dRibbonRear = min(
         sdQuadArc(b, float2(-0.530, 0.495), float2(-0.350, 0.518), float2(-0.295, 0.485)),
         sdQuadArc(b, float2(-0.295, 0.485), float2(-0.375, 0.395), float2(-0.285, 0.255))
     );
-    // 2) Continuous diagonal flank ribbon sweeping from cockpit waist cleanly down behind the front wheel
+    // 2) Tank-waist to front wheel fork sweep
     float dRibbonFlank = min(
         sdQuadArc(b, float2(-0.145, 0.335), float2(0.080, 0.355), float2(0.255, 0.330)),
         sdQuadArc(b, float2(0.255, 0.330), float2(0.330, 0.220), float2(0.295, 0.078))
     );
-    // 3) Glowing leading nose contour down the front wheel shroud & subtle rear fender bumper groove
+    // 3) Rider circuits flowing seamlessly FROM rear canopy (-0.295, 0.485) -> back/shoulder -> arm -> INTO fork ribbon (0.312, 0.305)
+    float dRiderSpineFlow = sdQuadArc(b, float2(-0.295, 0.485), float2(-0.140, 0.412), float2(0.145, 0.502));
+    float dRiderArmFlow = sdQuadArc(b, float2(0.145, 0.502), float2(0.245, 0.405), float2(0.312, 0.285));
+    // 4) Fine secondary bike/rider tie-ins: front/rear nose contours, knee-to-footpeg link, and helmet visor slit
     float dRibbonNose = min(
         sdQuadArc(b, float2(0.775, 0.405), float2(0.848, 0.245), float2(0.812, 0.125)),
         sdQuadArc(b, float2(-0.790, 0.390), float2(-0.822, 0.305), float2(-0.810, 0.220))
     );
+    float dRiderLegFlow = sdQuadArc(b, float2(-0.145, 0.335), float2(-0.032, 0.286), float2(-0.265, 0.214));
+    float dVisorSlit = sdSegment(b, float2(0.258, 0.544), float2(0.324, 0.528));
 
     float3 neonCyan = float3(0.06, 0.92, 1.0);
     float3 coreWhite = float3(0.88, 0.99, 1.0);
@@ -471,52 +480,16 @@ void evalLightCycleAndRider(
     col += neonCyan * (rearGlow + frontGlow) * 0.95 * reflAtten;
     col += coreWhite * max(rearCore, frontCore) * 0.96 * reflAtten;
 
-    float dBikeRibbons = min(dRibbonRear, dRibbonFlank);
-    float bikeRibCore = 1.0 - ss(0.0095, 0.0095 + localPx * 2.0, dBikeRibbons);
-    float bikeRibGlow = exp(-dBikeRibbons * 32.0);
-    float noseCore = 1.0 - ss(0.0042, 0.0042 + localPx * 1.5, dRibbonNose);
-    float noseGlow = exp(-dRibbonNose * 48.0);
+    float dMainRibbons = min(dRibbonRear, min(dRibbonFlank, min(dRiderSpineFlow, dRiderArmFlow)));
+    float mainCore = 1.0 - ss(0.0085, 0.0085 + localPx * 2.0, dMainRibbons);
+    float mainGlow = exp(-dMainRibbons * 33.0);
 
-    col += neonCyan * (bikeRibGlow * 0.90 + noseGlow * 0.58) * reflAtten;
-    col += coreWhite * max(bikeRibCore * 0.94, noseCore * 0.78) * reflAtten;
+    float dFineRibbons = min(dRibbonNose, min(dRiderLegFlow, dVisorSlit));
+    float fineCore = 1.0 - ss(0.0038, 0.0038 + localPx * 1.4, dFineRibbons);
+    float fineGlow = exp(-dFineRibbons * 50.0);
 
-    // Layer E: Stylized Synthwave Outrun Rider Silhouette sitting inside sculpted cockpit
-    float dHelmet = 1.0;
-    float dRider = sdSynthwaveRider(b, dHelmet);
-    float riderMask = 1.0 - ss(-localPx, localPx, dRider);
-    if (riderMask > 0.001) {
-        float3 suitCol = float3(0.016, 0.008, 0.046);
-
-        float edgeMask = ss(localPx * 3.8, 0.0, abs(dRider));
-        float3 sunsetRim = lerp(float3(1.0, 0.18, 0.68), neonCyan, ss(0.48, 0.22, b.y));
-        suitCol += sunsetRim * edgeMask * 0.52;
-
-        float helmRim = ss(localPx * 3.5, 0.0, abs(dHelmet)) * ss(0.54, 0.60, b.y);
-        suitCol += float3(1.0, 0.45, 0.78) * helmRim * 0.35;
-
-        col = isReflection > 0.5
-            ? lerp(col, col * 0.60 + suitCol * 0.40, riderMask * reflAtten * 0.72)
-            : lerp(col, suitCol, riderMask);
-    }
-
-    // Minimalist razor-sharp Outrun graphic lines: glowing helmet visor slit & neon jacket racing stripe
-    float dVisorSlit = sdSegment(b, float2(0.258, 0.544), float2(0.324, 0.528));
-    float dJacketStripe = sdSegment(b, float2(-0.165, 0.392), float2(0.140, 0.506));
-    float dCuffAccent = sdSegment(b, float2(0.305, 0.355), float2(0.362, 0.312));
-
-    float visorCore = 1.0 - ss(0.0032, 0.0032 + localPx * 1.4, dVisorSlit);
-    float visorGlow = exp(-dVisorSlit * 55.0) * ss(0.05, 0.0, dVisorSlit);
-    col += neonCyan * visorGlow * 0.75 * reflAtten;
-    col += coreWhite * visorCore * 0.92 * reflAtten;
-
-    float stripeCore = 1.0 - ss(0.0030, 0.0030 + localPx * 1.4, dJacketStripe);
-    float stripeGlow = exp(-dJacketStripe * 58.0) * ss(0.05, 0.0, dJacketStripe);
-    float3 stripeHue = lerp(float3(1.0, 0.22, 0.74), neonCyan, ss(-0.14, 0.12, b.x));
-    col += stripeHue * (stripeGlow * 0.55 + stripeCore * 0.78) * reflAtten;
-
-    float cuffCore = 1.0 - ss(0.0022, 0.0022 + localPx * 1.2, dCuffAccent);
-    float cuffGlow = exp(-dCuffAccent * 65.0) * ss(0.04, 0.0, dCuffAccent);
-    col += neonCyan * (cuffGlow * 0.38 + cuffCore * 0.48) * reflAtten;
+    col += neonCyan * (mainGlow * 0.88 + fineGlow * 0.62) * reflAtten;
+    col += coreWhite * max(mainCore * 0.92, fineCore * 0.82) * reflAtten;
 
     // Forward headlight beam with smooth spatial fade inside AABB (zero clipping)
     float dHead = length((b - float2(0.86, 0.28)) * float2(0.65, 1.8));

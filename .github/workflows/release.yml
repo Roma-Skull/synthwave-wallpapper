@@ -43,7 +43,7 @@ jobs:
       - name: Smoke-test offscreen shader renders (WARP/GPU)
         shell: powershell
         run: |
-          foreach ($scene in @('neon_horizon', 'miami_drive', 'light_cycle')) {
+          foreach ($scene in @('neon_horizon', 'miami_drive', 'light_cycle', 'outrun_cycle')) {
             $outPng = Join-Path $env:RUNNER_TEMP "smoke_$scene.png"
             & .\dist\NeonHorizonWallpaper-windows.exe --test-render $outPng $scene 1280 720 | Out-String
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outPng)) {
@@ -68,7 +68,7 @@ jobs:
             "",
             "Платформа: **Windows 10 / Windows 11 (включая 24H2+)** — нативный Direct3D 11 + DirectComposition + HLSL рендер.",
             "",
-            "- Три процедурные сцены: **Neon Horizon**, **Miami Sunset Drive** и **Light Cycle (TRON)**.",
+            "- Четыре процедурные сцены: **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.",
             "- Двухпроходный CRT/VHS-шейдер с поддержкой произвольных соотношений сторон и DPI.",
             "- Встроенный модуль автообновления из GitHub Releases с проверкой SHA-256.",
             "",
