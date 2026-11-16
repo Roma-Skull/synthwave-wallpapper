@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Subtle sky horizon glow -->
+    <path android:pathData="M0,42 L108,42 L108,64 L0,64 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="64"
+                android:startX="54"
+                android:startY="42"
+                android:type="linear">
+                <item android:color="#00FF2A85" android:offset="0" />
+                <item android:color="#55FF2A85" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Outrun sun disc -->
+    <path android:pathData="M54,24 A25,25 0 1,1 53.99,24 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="54"
+                android:endY="74"
+                android:startX="54"
+                android:startY="24"
+                android:type="linear">
+                <item android:color="#FFE85F" android:offset="0" />
+                <item android:color="#FF6B42" android:offset="0.52" />
+                <item android:color="#FF2A85" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Sun scan-slice cutouts -->
+    <path android:fillColor="#180A2C" android:pathData="M24,49 L84,49 L84,51 L24,51 Z" />
+    <path android:fillColor="#180A2C" android:pathData="M24,54 L84,54 L84,56.5 L24,56.5 Z" />
+    <path android:fillColor="#180A2C" android:pathData="M24,59.5 L84,59.5 L84,62.5 L24,62.5 Z" />
+
+    <!-- Floor fill -->
+    <path android:fillColor="#0D061E" android:pathData="M0,63 L108,63 L108,108 L0,108 Z" />
+
+    <!-- Horizon beam & perspective cyan grid -->
+    <path
+        android:pathData="M0,63 L108,63"
+        android:strokeColor="#00F0FF"
+        android:strokeWidth="2.0" />
+    <path
+        android:pathData="M0,73 L108,73 M0,86 L108,86 M0,101 L108,101"
+        android:strokeColor="#D800F0FF"
+        android:strokeWidth="1.4" />
+    <path
+        android:pathData="M54,63 L54,108 M44,63 L26,108 M64,63 L82,108 M33,63 L-10,108 M75,63 L118,108"
+        android:strokeColor="#D800F0FF"
+        android:strokeWidth="1.4" />
+</vector>

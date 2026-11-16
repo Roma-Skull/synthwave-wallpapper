@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Neon Horizon</string>
+    <string name="wallpaper_label">Neon Horizon — Synthwave CRT</string>
+    <string name="wallpaper_description">Procedural Synthwave &amp; Outrun 84 live wallpaper with GPU CRT/VHS post-processing.</string>
+    <string name="preview_title">Neon Horizon Preview</string>
+</resources>

@@ -1,0 +1,100 @@
+{
+  "defaults": {
+    "scene": "neon_horizon",
+    "enabled": true,
+    "animateBg": true,
+    "preset": "vhs",
+    "curvature": 40,
+    "scanlines": 52,
+    "bloom": 36,
+    "vhs": 75,
+    "sweep": 60,
+    "vignette": 48,
+    "animate": true,
+    "gridSpeed": 50,
+    "targetFps": 24,
+    "sceneScale": 60,
+    "autoCheckUpdates": true
+  },
+  "ranges": {
+    "curvature": [0, 100],
+    "scanlines": [0, 100],
+    "bloom": [0, 100],
+    "vhs": [0, 100],
+    "sweep": [0, 100],
+    "vignette": [0, 100],
+    "gridSpeed": [25, 250]
+  },
+  "scenes": [
+    {
+      "id": "neon_horizon",
+      "displayName": "Neon Horizon",
+      "hlslShader": "synthwave_scene.ps.hlsl",
+      "glslShader": "synthwave_scene.frag"
+    },
+    {
+      "id": "miami_drive",
+      "displayName": "Miami Sunset Drive",
+      "hlslShader": "miami_drive.ps.hlsl",
+      "glslShader": "miami_drive.frag"
+    },
+    {
+      "id": "light_cycle",
+      "displayName": "Light Cycle",
+      "hlslShader": "light_cycle.ps.hlsl",
+      "glslShader": "light_cycle.frag"
+    },
+    {
+      "id": "outrun_cycle",
+      "displayName": "Outrun Cycle",
+      "hlslShader": "outrun_cycle.ps.hlsl",
+      "glslShader": "outrun_cycle.frag"
+    }
+  ],
+  "presets": [
+    {
+      "id": "soft",
+      "displayName": "Soft CRT",
+      "curvature": 14,
+      "scanlines": 28,
+      "bloom": 32,
+      "vhs": 22,
+      "sweep": 35,
+      "vignette": 35,
+      "animate": true
+    },
+    {
+      "id": "outrun",
+      "displayName": "Outrun 84",
+      "curvature": 24,
+      "scanlines": 45,
+      "bloom": 58,
+      "vhs": 38,
+      "sweep": 55,
+      "vignette": 55,
+      "animate": true
+    },
+    {
+      "id": "vhs",
+      "displayName": "VHS Tape",
+      "curvature": 40,
+      "scanlines": 52,
+      "bloom": 36,
+      "vhs": 75,
+      "sweep": 60,
+      "vignette": 48,
+      "animate": true
+    },
+    {
+      "id": "minimal",
+      "displayName": "Minimal",
+      "curvature": 0,
+      "scanlines": 18,
+      "bloom": 22,
+      "vhs": 8,
+      "sweep": 0,
+      "vignette": 18,
+      "animate": false
+    }
+  ]
+}

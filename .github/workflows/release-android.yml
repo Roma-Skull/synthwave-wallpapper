@@ -1,0 +1,125 @@
+name: Release Android Build
+
+on:
+  push:
+    tags:
+      - 'android-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Android release tag (e.g. android-v1.0.0)'
+        required: true
+        default: 'android-v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Determine Android version tag
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          clean="${tag#android-v}"
+          clean="${clean#android-V}"
+          clean="${clean#v}"
+          clean="${clean#V}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$clean" >> "$GITHUB_OUTPUT"
+
+      - name: Update android/VERSION
+        shell: bash
+        run: echo "${{ steps.ver.outputs.version }}" > android/VERSION
+
+      - name: Build Android APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Package Android release artifacts
+        shell: bash
+        run: |
+          ver="${{ steps.ver.outputs.version }}"
+          tag="${{ steps.ver.outputs.tag }}"
+          mkdir -p android/dist
+          src_apk="android/app/build/outputs/apk/release/app-release.apk"
+          apk_generic="android/dist/NeonHorizonWallpaper-android.apk"
+          apk_ver="android/dist/NeonHorizonWallpaper-v${ver}-android.apk"
+          cp "$src_apk" "$apk_generic"
+          cp "$src_apk" "$apk_ver"
+
+          (cd android/dist && sha256sum "NeonHorizonWallpaper-android.apk" "NeonHorizonWallpaper-v${ver}-android.apk" > checksums-android-sha256.txt)
+
+          sha=$(sha256sum "$apk_generic" | awk '{print $1}')
+          size=$(stat -c%s "$apk_generic")
+          now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          cat > android/dist/manifest-android.json <<EOF
+          {
+            "schemaVersion": 1,
+            "platform": "android",
+            "tag": "${tag}",
+            "version": "${ver}",
+            "asset": "NeonHorizonWallpaper-android.apk",
+            "versionedAsset": "NeonHorizonWallpaper-v${ver}-android.apk",
+            "sha256": "${sha}",
+            "sizeBytes": ${size},
+            "minOs": "Android 7.0 (API 24)",
+            "releasedAtUtc": "${now}"
+          }
+          EOF
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${{ steps.ver.outputs.tag }}"
+          ver="${{ steps.ver.outputs.version }}"
+          apk_generic="android/dist/NeonHorizonWallpaper-android.apk"
+          apk_ver="android/dist/NeonHorizonWallpaper-v${ver}-android.apk"
+          sha="android/dist/checksums-android-sha256.txt"
+          man="android/dist/manifest-android.json"
+
+          cat > /tmp/release_notes.md <<EOF
+          ## Neon Horizon — Android Live Wallpaper (v${ver})
+
+          Нативные живые обои для **Android 7.0+** на базе \`WallpaperService\` и **OpenGL ES 3.0**.
+
+          ### Возможности
+          - **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.
+          - **Двухпроходный CRT/VHS-шейдер:** бочкообразный изгиб экрана, чересстрочный сканлайн и RGB-решётка, Bloom, VHS-глитчи и виньетка.
+          - **Настройки в реальном времени:** живое превью, 4 пресета (\`Soft CRT\`, \`Outrun 84\`, \`VHS Tape\`, \`Minimal\`), 7 ползунков, лимит FPS (\`24\`/\`30\`/\`60\`/\`120\`/\`Display VSync\` с поддержкой \`Surface.setFrameRate\`) и масштаб сцены.
+          - **Автопроверка обновлений:** загрузка APK с проверкой SHA-256 через GitHub Releases.
+          EOF
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk_generic" "$apk_ver" "$sha" "$man" --clobber
+            gh release edit "$tag" --title "Neon Horizon Wallpaper v${ver} [Android]" --notes-file /tmp/release_notes.md
+          else
+            gh release create "$tag" "$apk_generic" "$apk_ver" "$sha" "$man" \
+              --title "Neon Horizon Wallpaper v${ver} [Android]" \
+              --notes-file /tmp/release_notes.md
+          fi

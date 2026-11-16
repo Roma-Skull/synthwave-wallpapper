@@ -7,7 +7,7 @@
 ## Платформы
 
 - **Windows** *(доступно сейчас)* — нативный рендер на **Direct3D 11 + DirectComposition + HLSL**, встраивание строго за значками рабочего стола без сторонних программ вроде Wallpaper Engine или Lively Wallpaper.
-- **Android** *(планируется)* — адаптация сцен и CRT/VHS-постобработки под нативные живые обои Android (`WallpaperService` + OpenGL ES / Vulkan). Архитектура шейдеров уже поддерживает вертикальные и произвольные соотношения сторон для мобильных экранов.
+- **Android** *(доступно сейчас)* — нативные живые обои на **WallpaperService + OpenGL ES 3.0 (GLSL ES 3.00)** с живым превью, полным набором настроек, адаптацией под любые портретные/горизонтальные экраны и `Surface.setFrameRate()` для LTPO-дисплеев.
 
 ---
 
@@ -60,6 +60,21 @@
 
 ---
 
+## Сборка для Android
+
+Требуется Android SDK (API 34) и JDK 17+:
+
+```bash
+cd android
+./gradlew assembleDebug
+# или релизный APK:
+./gradlew assembleRelease
+```
+
+После установки APK откройте **Neon Horizon**, настройте сцену/CRT-эффекты в живом превью и нажмите **Set Live Wallpaper** (или выберите *Neon Horizon — Synthwave CRT* в системных живых обоях).
+
+---
+
 ## Пересборка и упаковка релиза для Windows из исходников
 
 Внешние SDK не требуются — используется встроенный компилятор .NET Framework 4 (`csc.exe`):
@@ -87,6 +102,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File windows\package.ps1 -Version
   - [`windows/app.manifest`](windows/app.manifest) — совместимость Windows 8/10/11 и `PerMonitorV2` DPI;
   - [`windows/build.ps1`](windows/build.ps1) — предкомпилятор шейдеров (DXBC), генератор `.ico` и сборщик `NeonHorizonWallpaper.exe`;
   - [`windows/package.ps1`](windows/package.ps1) — сборщик дистрибутива в `windows/dist/`.
-- [`android/`](android/) — проект под Android (`WallpaperService` + OpenGL ES).
-- [`common/`](common/) — общие материалы, спецификации и ресурсы между платформами.
+- [`android/`](android/) — проект под Android (`WallpaperService` + OpenGL ES 3.0):
+  - [`android/VERSION`](android/VERSION) — базовая версия сборки Android;
+  - [`android/app/src/main/assets/shaders/`](android/app/src/main/assets/shaders/) — GLSL ES 3.00 порты шейдеров;
+  - [`android/app/src/main/java/com/romaskull/neonhorizon/`](android/app/src/main/java/com/romaskull/neonhorizon/) — `SynthwaveWallpaperService`, `SynthwaveGlRenderer`, `SettingsActivity`, `PreviewActivity`, `UpdateManager`.
+- [`common/`](common/) — общая конфигурация сцен, пресетов и параметров по умолчанию ([`common/wallpaper_config.json`](common/wallpaper_config.json)).
 - [`img/`](img/) — скриншоты сцен на рабочем столе.
