@@ -77,9 +77,27 @@ public class ShaderRenderInstrumentedTest {
             for (WallpaperConfig.SceneDefinition sd : cfg.scenes) {
                 WallpaperSettings s = new WallpaperSettings(cfg);
                 s.scene = sd.id;
-                renderer.renderFrame(1.5f, 1.5f, 1.5f, s);
+                for (int frame = 0; frame < 5; frame++) {
+                    float t = 1.5f + frame * 0.04f;
+                    renderer.renderFrame(t, t, t, s);
+                    GLES30.glFinish();
+                    assertEquals("GL error on scene " + sd.id + " frame " + frame,
+                            GLES30.GL_NO_ERROR, GLES30.glGetError());
+                }
+
+                // Also test bloom-disabled path (Pass 1c skipped)
+                s.bloom = 0;
+                renderer.renderFrame(1.74f, 1.74f, 1.74f, s);
                 GLES30.glFinish();
-                assertEquals("GL error on scene " + sd.id, GLES30.GL_NO_ERROR, GLES30.glGetError());
+                assertEquals("GL error on scene " + sd.id + " bloom=0",
+                        GLES30.GL_NO_ERROR, GLES30.glGetError());
+
+                // Restore bloom and verify rendered output
+                s.bloom = 35;
+                renderer.renderFrame(1.78f, 1.78f, 1.78f, s);
+                GLES30.glFinish();
+                assertEquals("GL error on scene " + sd.id + " final",
+                        GLES30.GL_NO_ERROR, GLES30.glGetError());
 
                 pixels.clear();
                 GLES30.glReadPixels(0, 0, w, h, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixels);

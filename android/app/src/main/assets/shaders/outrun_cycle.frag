@@ -2,9 +2,11 @@
 precision highp float;
 precision highp int;
 
+uniform sampler2D bgCacheTex;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uGridTime;
+uniform float uLayerMode;
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -439,31 +441,27 @@ void main() {
     vec2 p = vec2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     vec2 sunCenter = vec2(0.0, 0.255);
 
-    float yFloor = max(0.0022, -p.y);
-    float depth = 0.24 / yFloor;
-    float worldX = p.x * depth * 1.15 + uGridTime * 1.65;
-    float worldZ = depth * 1.05;
-    vec2 gCoord = vec2(worldX, worldZ);
-    vec2 gDeriv = max(vec2(0.0008, 0.0008), fwidth(gCoord));
+    if (uLayerMode > 0.5 && uLayerMode < 1.5) {
+        if (p.y < -0.006) {
+            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+            return;
+        }
 
-    // 1. Cosmic Night -> Royal Cobalt Blue -> Horizon Magenta Sky
-    vec3 skyTop = vec3(0.015, 0.018, 0.068);
-    vec3 skyMid = vec3(0.045, 0.135, 0.460);
-    vec3 skyHor = vec3(0.560, 0.095, 0.540);
-    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
-    vec3 col = mix(skyHor, skyMid, ss(0.02, 0.44, tSky));
-    col = mix(col, skyTop, ss(0.55, 0.96, tSky));
+        vec3 skyTop = vec3(0.015, 0.018, 0.068);
+        vec3 skyMid = vec3(0.045, 0.135, 0.460);
+        vec3 skyHor = vec3(0.560, 0.095, 0.540);
+        float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+        vec3 col = mix(skyHor, skyMid, ss(0.02, 0.44, tSky));
+        col = mix(col, skyTop, ss(0.55, 0.96, tSky));
 
-    // 2. Crisp Golden Sliced Outrun Sun
-    vec2 pSun = p - sunCenter;
-    float sunR = 0.165;
-    float sunDist = length(pSun);
-    float sunBreath = 1.0 + 0.03 * sin(uTime * 1.25);
+        vec2 pSun = p - sunCenter;
+        float sunR = 0.165;
+        float sunDist = length(pSun);
+        float sunBreath = 1.0 + 0.03 * sin(uTime * 1.25);
 
-    float sunHalo = exp(-max(0.0, sunDist - sunR) * 11.0) * 0.45 * sunBreath;
-    col += vec3(1.0, 0.48, 0.18) * sunHalo;
+        float sunHalo = exp(-max(0.0, sunDist - sunR) * 11.0) * 0.45 * sunBreath;
+        col += vec3(1.0, 0.48, 0.18) * sunHalo;
 
-    if (p.y >= -0.002) {
         vec2 starCoord = vec2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH);
         col += renderStarfield(starCoord, tSky, uTime) * ss(sunR * 0.95, sunR * 1.45, sunDist);
 
@@ -483,8 +481,63 @@ void main() {
             col = mix(col, discCol, discMask * (1.0 - sliceGap));
         }
 
-        // 3. Slow-Scrolling Triangulated Cyan Wireframe Mountains
         col = renderWireframeMountains(p, pxScale, col, uGridTime);
+        fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        return;
+    }
+
+    float yFloor = max(0.0022, -p.y);
+    float depth = 0.24 / yFloor;
+    float worldX = p.x * depth * 1.15 + uGridTime * 1.65;
+    float worldZ = depth * 1.05;
+    vec2 gCoord = vec2(worldX, worldZ);
+    vec2 gDeriv = max(vec2(0.0008, 0.0008), fwidth(gCoord));
+
+    vec3 col = vec3(0.0, 0.0, 0.0);
+
+    if (p.y >= -0.002) {
+        if (uLayerMode >= 1.5) {
+            col = textureLod(bgCacheTex, vUv, 0.0).rgb;
+        } else {
+            // 1. Cosmic Night -> Royal Cobalt Blue -> Horizon Magenta Sky
+            vec3 skyTop = vec3(0.015, 0.018, 0.068);
+            vec3 skyMid = vec3(0.045, 0.135, 0.460);
+            vec3 skyHor = vec3(0.560, 0.095, 0.540);
+            float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+            col = mix(skyHor, skyMid, ss(0.02, 0.44, tSky));
+            col = mix(col, skyTop, ss(0.55, 0.96, tSky));
+
+            // 2. Crisp Golden Sliced Outrun Sun
+            vec2 pSun = p - sunCenter;
+            float sunR = 0.165;
+            float sunDist = length(pSun);
+            float sunBreath = 1.0 + 0.03 * sin(uTime * 1.25);
+
+            float sunHalo = exp(-max(0.0, sunDist - sunR) * 11.0) * 0.45 * sunBreath;
+            col += vec3(1.0, 0.48, 0.18) * sunHalo;
+
+            vec2 starCoord = vec2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH);
+            col += renderStarfield(starCoord, tSky, uTime) * ss(sunR * 0.95, sunR * 1.45, sunDist);
+
+            float discMask = 1.0 - ss(sunR - pxScale * 1.4, sunR + pxScale * 1.4, sunDist);
+            if (discMask > 0.001) {
+                float hNorm = clamp((pSun.y + sunR) / (2.0 * sunR), 0.0, 1.0);
+                vec3 sunTopCol = vec3(1.0, 0.94, 0.24);
+                vec3 sunBotCol = vec3(1.0, 0.68, 0.08);
+                vec3 discCol = mix(sunBotCol, sunTopCol, ss(0.05, 0.90, hNorm));
+
+                float bandH = clamp((hNorm - 0.04) / 0.58, 0.0, 1.0);
+                float slicePhase = fract(bandH * 6.2 + uTime * 0.22);
+                float sliceThickness = mix(0.42, 0.06, bandH);
+                float sliceGap = ss(sliceThickness + 0.035, sliceThickness - 0.015, slicePhase)
+                    * step(bandH, 0.96)
+                    * ss(0.96, 0.80, bandH);
+                col = mix(col, discCol, discMask * (1.0 - sliceGap));
+            }
+
+            // 3. Slow-Scrolling Triangulated Cyan Wireframe Mountains
+            col = renderWireframeMountains(p, pxScale, col, uGridTime);
+        }
     } else {
         // 4. Reflective Hot-Pink Perspective Neon Grid Floor
         float yFloorRaw = -p.y;

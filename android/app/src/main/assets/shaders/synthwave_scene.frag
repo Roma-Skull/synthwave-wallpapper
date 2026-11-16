@@ -2,9 +2,11 @@
 precision highp float;
 precision highp int;
 
+uniform sampler2D bgCacheTex;
 uniform vec2 uResolution;
 uniform float uTime;
 uniform float uGridTime;
+uniform float uLayerMode;
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -135,36 +137,31 @@ void main() {
     vec2 p = vec2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     vec2 sunCenter = vec2(0.0, 0.062);
 
-    // Precompute floor grid derivatives in uniform control flow
-    float yFloor = max(0.0022, -p.y);
-    float depth = 0.25 / yFloor;
-    float worldX = p.x * depth * 1.15;
-    float worldZ = depth - uGridTime * 1.45;
-    vec2 gCoord = vec2(worldX, worldZ);
-    vec2 gDeriv = max(vec2(0.0008, 0.0008), fwidth(gCoord));
+    if (uLayerMode > 0.5 && uLayerMode < 1.5) {
+        if (p.y < -0.006) {
+            fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+            return;
+        }
 
-    // 1. Deep Synthwave Twilight Sky & Horizon Nebula
-    vec3 skyTop = vec3(0.0431, 0.0275, 0.0941);
-    vec3 skyMid = vec3(0.088, 0.039, 0.195);
-    vec3 skyHor = vec3(0.245, 0.055, 0.305);
-    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
-    vec3 col = mix(skyHor, skyMid, ss(0.0, 0.36, tSky));
-    col = mix(col, skyTop, ss(0.26, 0.92, tSky));
+        vec3 skyTop = vec3(0.0431, 0.0275, 0.0941);
+        vec3 skyMid = vec3(0.088, 0.039, 0.195);
+        vec3 skyHor = vec3(0.245, 0.055, 0.305);
+        float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+        vec3 col = mix(skyHor, skyMid, ss(0.0, 0.36, tSky));
+        col = mix(col, skyTop, ss(0.26, 0.92, tSky));
 
-    float aurora = sin(p.x * 3.1 + uTime * 0.22) * cos(p.y * 7.5 - uTime * 0.16);
-    col += vec3(0.045, 0.012, 0.075) * max(0.0, aurora) * (1.0 - tSky);
+        float aurora = sin(p.x * 3.1 + uTime * 0.22) * cos(p.y * 7.5 - uTime * 0.16);
+        col += vec3(0.045, 0.012, 0.075) * max(0.0, aurora) * (1.0 - tSky);
 
-    // 2. Retro Sliced Outrun Sun + Breathing Corona
-    vec2 pSun = p - sunCenter;
-    float sunR = 0.188;
-    float sunDist = length(pSun);
-    float sunBreath = 1.0 + 0.045 * sin(uTime * 1.35);
+        vec2 pSun = p - sunCenter;
+        float sunR = 0.188;
+        float sunDist = length(pSun);
+        float sunBreath = 1.0 + 0.045 * sin(uTime * 1.35);
 
-    float corona = exp(-max(0.0, sunDist - sunR) * 9.5) * 0.65 * sunBreath;
-    float wideGlow = exp(-length(pSun * vec2(0.75, 1.45)) * 2.9) * 0.42;
-    col += vec3(1.0, 0.16, 0.52) * (corona + wideGlow);
+        float corona = exp(-max(0.0, sunDist - sunR) * 9.5) * 0.65 * sunBreath;
+        float wideGlow = exp(-length(pSun * vec2(0.75, 1.45)) * 2.9) * 0.42;
+        col += vec3(1.0, 0.16, 0.52) * (corona + wideGlow);
 
-    if (p.y >= -0.002) {
         vec2 starCoord = vec2(p.x, p.y + horY);
         float starFade = ss(0.03, 0.24, tSky) * ss(0.98, 0.72, tSky);
         col += renderStarfield(starCoord, 0.30, uTime) * (starFade / max(1e-4, ss(0.03, 0.24, 0.30) * ss(0.56, 0.40, 0.30)))
@@ -189,8 +186,73 @@ void main() {
             col = mix(col, discCol, discMask * (1.0 - sliceGap));
         }
 
-        // 3. Low-Poly Wireframe Mountains
         col = renderMountains(p, sunCenter, pxScale, col, uTime);
+        fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        return;
+    }
+
+    // Precompute floor grid derivatives in uniform control flow
+    float yFloor = max(0.0022, -p.y);
+    float depth = 0.25 / yFloor;
+    float worldX = p.x * depth * 1.15;
+    float worldZ = depth - uGridTime * 1.45;
+    vec2 gCoord = vec2(worldX, worldZ);
+    vec2 gDeriv = max(vec2(0.0008, 0.0008), fwidth(gCoord));
+
+    vec3 col = vec3(0.0, 0.0, 0.0);
+
+    if (p.y >= -0.002) {
+        if (uLayerMode >= 1.5) {
+            col = textureLod(bgCacheTex, vUv, 0.0).rgb;
+        } else {
+            // 1. Deep Synthwave Twilight Sky & Horizon Nebula
+            vec3 skyTop = vec3(0.0431, 0.0275, 0.0941);
+            vec3 skyMid = vec3(0.088, 0.039, 0.195);
+            vec3 skyHor = vec3(0.245, 0.055, 0.305);
+            float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+            col = mix(skyHor, skyMid, ss(0.0, 0.36, tSky));
+            col = mix(col, skyTop, ss(0.26, 0.92, tSky));
+
+            float aurora = sin(p.x * 3.1 + uTime * 0.22) * cos(p.y * 7.5 - uTime * 0.16);
+            col += vec3(0.045, 0.012, 0.075) * max(0.0, aurora) * (1.0 - tSky);
+
+            // 2. Retro Sliced Outrun Sun + Breathing Corona
+            vec2 pSun = p - sunCenter;
+            float sunR = 0.188;
+            float sunDist = length(pSun);
+            float sunBreath = 1.0 + 0.045 * sin(uTime * 1.35);
+
+            float corona = exp(-max(0.0, sunDist - sunR) * 9.5) * 0.65 * sunBreath;
+            float wideGlow = exp(-length(pSun * vec2(0.75, 1.45)) * 2.9) * 0.42;
+            col += vec3(1.0, 0.16, 0.52) * (corona + wideGlow);
+
+            vec2 starCoord = vec2(p.x, p.y + horY);
+            float starFade = ss(0.03, 0.24, tSky) * ss(0.98, 0.72, tSky);
+            col += renderStarfield(starCoord, 0.30, uTime) * (starFade / max(1e-4, ss(0.03, 0.24, 0.30) * ss(0.56, 0.40, 0.30)))
+                * ss(sunR * 0.95, sunR * 1.45, sunDist);
+
+            float discMask = (1.0 - ss(sunR - pxScale * 1.5, sunR + pxScale * 1.5, sunDist))
+                * ss(-pxScale, pxScale * 1.5, p.y);
+            if (discMask > 0.001) {
+                float hNorm = clamp((pSun.y + sunR) / (2.0 * sunR), 0.0, 1.0);
+                vec3 sunTopCol = vec3(1.0, 0.91, 0.37);
+                vec3 sunMidCol = vec3(1.0, 0.42, 0.26);
+                vec3 sunBotCol = vec3(1.0, 0.165, 0.52);
+                vec3 discCol = mix(sunBotCol, sunMidCol, ss(0.08, 0.52, hNorm));
+                discCol = mix(discCol, sunTopCol, ss(0.45, 0.92, hNorm));
+
+                float visH = clamp((hNorm - 0.335) / 0.35, 0.0, 1.0);
+                float slicePhase = fract(visH * 5.2 + uTime * 0.28);
+                float sliceThickness = mix(0.42, 0.04, visH);
+                float sliceGap = ss(sliceThickness + 0.04, sliceThickness - 0.015, slicePhase)
+                    * step(visH, 0.96)
+                    * ss(0.96, 0.80, visH);
+                col = mix(col, discCol, discMask * (1.0 - sliceGap));
+            }
+
+            // 3. Low-Poly Wireframe Mountains
+            col = renderMountains(p, sunCenter, pxScale, col, uTime);
+        }
     } else {
         // 4. Infinite Forward-Scrolling Perspective Neon Grid
         float yFloorRaw = -p.y;
