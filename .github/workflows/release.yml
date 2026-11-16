@@ -1,44 +1,149 @@
-name: Release Windows Build
+name: Release Build
 
 on:
   push:
     tags:
-      - 'windows-v*'
       - 'v*'
+      - 'windows-v*'
+      - 'android-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Windows release tag (e.g. windows-v1.3.2)'
+        description: 'Release tag (e.g. v1.4.0, android-v1.0.0, windows-v1.3.1)'
         required: true
-        default: 'windows-v1.3.2'
+        default: 'v1.4.0'
+      platforms:
+        description: 'Platforms to build'
+        type: choice
+        required: true
+        default: 'auto'
+        options:
+          - auto
+          - both
+          - android
+          - windows
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      build_windows: ${{ steps.plan.outputs.build_windows }}
+      build_android: ${{ steps.plan.outputs.build_android }}
+    steps:
+      - name: Checkout repository with full tag history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine release version and changed platforms
+        id: plan
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PLATFORMS: ${{ inputs.platforms }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+
+          event_name = os.environ['EVENT_NAME']
+          tag = os.environ['INPUT_TAG'] if event_name == 'workflow_dispatch' else os.environ['REF_NAME']
+          platforms_mode = os.environ.get('INPUT_PLATFORMS', 'auto') if event_name == 'workflow_dispatch' else 'auto'
+
+          clean_version = re.sub(r'^(?:[a-zA-Z0-9_-]+-)?[vV]', '', tag)
+
+          def find_prev_tag_commit(pattern_re):
+              raw_refs = git(
+                  'for-each-ref',
+                  '--merged=HEAD',
+                  '--format=%(*objectname)\t%(objectname)\t%(refname:short)',
+                  'refs/tags',
+              )
+              commit_tags = {}
+              for line in raw_refs.splitlines():
+                  if not line.strip():
+                      continue
+                  deref, obj, name = line.split('\t')
+                  commit = deref or obj
+                  if name == tag:
+                      continue
+                  if re.match(pattern_re, name, re.IGNORECASE):
+                      commit_tags.setdefault(commit, []).append(name)
+
+              if not commit_tags:
+                  return None, None
+
+              for commit in git('rev-list', 'HEAD').splitlines():
+                  if commit in commit_tags:
+                      return commit, commit_tags[commit][0]
+              return None, None
+
+          def has_changes(prev_commit, paths):
+              if prev_commit:
+                  out = git('diff', '--name-only', f'{prev_commit}..HEAD', '--', *paths)
+              else:
+                  out = git('ls-tree', '-r', '--name-only', 'HEAD', '--', *paths)
+              return bool(out.strip())
+
+          lower_tag = tag.lower()
+          if platforms_mode == 'both':
+              build_win, build_and = True, True
+              reason = 'manual dispatch (both)'
+          elif platforms_mode == 'windows':
+              build_win, build_and = True, False
+              reason = 'manual dispatch (windows)'
+          elif platforms_mode == 'android':
+              build_win, build_and = False, True
+              reason = 'manual dispatch (android)'
+          elif lower_tag.startswith('windows-v'):
+              build_win, build_and = True, False
+              reason = 'windows-scoped tag'
+          elif lower_tag.startswith('android-v'):
+              build_win, build_and = False, True
+              reason = 'android-scoped tag'
+          else:
+              prev_win_commit, prev_win_tag = find_prev_tag_commit(r'^(?:windows-v|v\d)')
+              prev_and_commit, prev_and_tag = find_prev_tag_commit(r'^(?:android-v|v\d)')
+              build_win = has_changes(prev_win_commit, ['windows/', 'common/'])
+              build_and = has_changes(prev_and_commit, ['android/', 'common/'])
+              reason = (
+                  f'diff check (windows vs {prev_win_tag or "<root>"}: {build_win}; '
+                  f'android vs {prev_and_tag or "<root>"}: {build_and})'
+              )
+
+          print(f'Tag: {tag}, Version: {clean_version}, Mode: {reason}')
+          print(f'build_windows={str(build_win).lower()}, build_android={str(build_and).lower()}')
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
+              f.write(f'tag={tag}\n')
+              f.write(f'version={clean_version}\n')
+              f.write(f'build_windows={str(build_win).lower()}\n')
+              f.write(f'build_android={str(build_and).lower()}\n')
+          PY
+
+  build-windows:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.build_windows == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Determine Windows version tag
-        id: ver
-        shell: pwsh
-        run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $tag = "${{ inputs.tag }}"
-          } else {
-            $tag = "${{ github.ref_name }}"
-          }
-          $clean = $tag -replace '^(?:[a-zA-Z0-9_-]+-)?[vV]', ''
-          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "version=$clean" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
       - name: Build and package Windows release
         shell: powershell
         run: |
-          .\windows\package.ps1 -Version "${{ steps.ver.outputs.version }}"
+          .\windows\package.ps1 -Version "${{ needs.detect-changes.outputs.version }}"
 
       - name: Smoke-test offscreen shader renders (WARP/GPU)
         shell: powershell
@@ -51,56 +156,201 @@ jobs:
             }
           }
 
+      - name: Upload Windows dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: windows/dist/*
+          if-no-files-found: error
+
+  build-android:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.build_android == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          if [ -n "${ANDROID_HOME:-}" ] && [ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          fi
+
+      - name: Update android/VERSION
+        shell: bash
+        run: echo "${{ needs.detect-changes.outputs.version }}" > android/VERSION
+
+      - name: Build Android APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ secrets.ANDROID_KEYSTORE_PATH }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Package Android release artifacts
+        shell: bash
+        env:
+          REL_TAG: ${{ needs.detect-changes.outputs.tag }}
+          REL_VER: ${{ needs.detect-changes.outputs.version }}
+        run: |
+          mkdir -p android/dist
+          src_apk="android/app/build/outputs/apk/release/app-release.apk"
+          apk_generic="android/dist/NeonHorizonWallpaper-android.apk"
+          apk_ver="android/dist/NeonHorizonWallpaper-v${REL_VER}-android.apk"
+          cp "$src_apk" "$apk_generic"
+          cp "$src_apk" "$apk_ver"
+
+          (cd android/dist && sha256sum "NeonHorizonWallpaper-android.apk" "NeonHorizonWallpaper-v${REL_VER}-android.apk" > checksums-android-sha256.txt)
+
+          python3 - <<'PY'
+          import datetime
+          import hashlib
+          import json
+          import os
+
+          apk_generic = 'android/dist/NeonHorizonWallpaper-android.apk'
+          with open(apk_generic, 'rb') as f:
+              data = f.read()
+
+          ver = os.environ['REL_VER']
+          manifest = {
+              'schemaVersion': 1,
+              'platform': 'android',
+              'tag': os.environ['REL_TAG'],
+              'version': ver,
+              'asset': 'NeonHorizonWallpaper-android.apk',
+              'versionedAsset': f'NeonHorizonWallpaper-v{ver}-android.apk',
+              'sha256': hashlib.sha256(data).hexdigest(),
+              'sizeBytes': len(data),
+              'minOs': 'Android 7.0 (API 24)',
+              'releasedAtUtc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+          }
+          with open('android/dist/manifest-android.json', 'w', encoding='utf-8') as f:
+              json.dump(manifest, f, indent=2)
+              f.write('\n')
+          PY
+
+      - name: Upload Android dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-dist
+          path: android/dist/*
+          if-no-files-found: error
+
+  publish-release:
+    needs: [detect-changes, build-windows, build-android]
+    if: >-
+      !cancelled() &&
+      needs.detect-changes.result == 'success' &&
+      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
+      (needs.build-android.result == 'success' || needs.build-android.result == 'skipped') &&
+      (needs.build-windows.result == 'success' || needs.build-android.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifacts
+        if: needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: release-assets
+
+      - name: Download Android artifacts
+        if: needs.build-android.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: android-dist
+          path: release-assets
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
+          REL_TAG: ${{ needs.detect-changes.outputs.tag }}
+          REL_VER: ${{ needs.detect-changes.outputs.version }}
+          BUILT_WINDOWS: ${{ needs.build-windows.result == 'success' }}
+          BUILT_ANDROID: ${{ needs.build-android.result == 'success' }}
+        shell: bash
         run: |
-          $tag = "${{ steps.ver.outputs.tag }}"
-          $ver = "${{ steps.ver.outputs.version }}"
-          $zip = "windows/dist/NeonHorizonWallpaper-v$ver-windows.zip"
-          $exe = "windows/dist/NeonHorizonWallpaper-windows.exe"
-          $sha = "windows/dist/checksums-windows-sha256.txt"
-          $man = "windows/dist/manifest-windows.json"
-          $notesPath = Join-Path $env:RUNNER_TEMP 'release_notes.md'
-          $lines = @(
-            "## Neon Horizon — Windows Live Desktop Wallpaper (v$ver)"
-            ''
-            'Нативные живые обои для рабочего стола **Windows 10 / Windows 11 (включая 24H2+)** напрямую на **Direct3D 11 + DirectComposition + HLSL** — без браузерного движка и сторонних лаунчеров.'
-            ''
-            "### Что нового в v$ver"
-            '- **Кэш дальнего фона (`BgCache`):** небо, солнце, звёзды и медленный городской скайлайн / горы теперь кэшируются в текстуру и обновляются раз в 3–4 кадра вместо пересчёта с нуля на каждом кадре (ощутимое снижение нагрузки GPU на `1920×1200` и `5120×2160`).'
-            '- **Вынесенный низкоразрешённый проход Bloom (`bloom_downsample`):** выделение и размытие люминофора выполняется в `1/9` разрешения сцены (`~1/25` от числа нативных пикселей), сокращая выборки текстуры в нативном `crt_vhs` вдвое (`10 → 5`) и полностью пропуская проход при отключённом Bloom.'
-            '- **Оптимизация отсечения неба на нижней половине:** нижняя часть кадра больше не выполняет лишние расчёты неба, авроры и короны солнца до перезаписи асфальтом/сеткой.'
-            ''
-            '### Основные возможности'
-            '- **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.'
-            '- **Двухпроходный CRT/VHS-шейдер:** бочкообразный изгиб экрана, чересстрочный сканлайн и RGB-решётка с привязкой к DPI, Bloom-свечение, VHS-глитчи и виньетка.'
-            '- **Любые соотношения сторон:** `16:9`, `16:10`, `21:9`, `32:9`, `4:3`, `1:1`, портретные `9:16`, `9:21` и мультимониторность.'
-            '- **Автообновление и экономия ресурсов:** `24 FPS` по умолчанию, рендер сцены в `60%`, автопауза в полноэкранных играх/приложениях и встроенный апдейтер через GitHub Releases с проверкой SHA-256.'
-            ''
-            '### Загрузка и запуск'
-            "- Скачайте **`NeonHorizonWallpaper-windows.exe`** (одиночный автономный файл) или **`NeonHorizonWallpaper-v$ver-windows.zip`**."
-            '- Запустите — иконка появится в системном трее (двойной клик открывает панель настроек).'
-          )
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          [System.IO.File]::WriteAllLines($notesPath, $lines, $utf8NoBom)
+          python3 - <<'PY'
+          import os
 
-          $releaseTitle = "Neon Horizon Wallpaper v$ver [Windows]"
-          $oldEap = $ErrorActionPreference
-          $ErrorActionPreference = 'Continue'
-          try {
-            gh release view $tag 2>$null | Out-Null
-            $releaseExists = ($LASTEXITCODE -eq 0)
-          } finally {
-            $ErrorActionPreference = $oldEap
-          }
+          ver = os.environ['REL_VER']
+          built_win = os.environ['BUILT_WINDOWS'] == 'true'
+          built_and = os.environ['BUILT_ANDROID'] == 'true'
 
-          if ($releaseExists) {
-            gh release upload $tag $zip $exe $sha $man --clobber
-            gh release edit $tag --title $releaseTitle --notes-file $notesPath
-          } else {
-            gh release create $tag $zip $exe $sha $man `
-              --title $releaseTitle `
-              --notes-file $notesPath
-          }
+          if built_win and built_and:
+              title = f'Neon Horizon Wallpaper v{ver}'
+          elif built_win:
+              title = f'Neon Horizon Wallpaper v{ver} [Windows]'
+          else:
+              title = f'Neon Horizon Wallpaper v{ver} [Android]'
+
+          parts = []
+          if built_win and built_and:
+              parts.append(f'## Neon Horizon Wallpaper (v{ver})')
+              parts.append('')
+              parts.append('Релиз для **Windows** (Direct3D 11 + HLSL) и **Android** (OpenGL ES 3.0 + GLSL ES 3.00).')
+              parts.append('')
+          elif built_win:
+              parts.append(f'## Neon Horizon — Windows Live Desktop Wallpaper (v{ver})')
+              parts.append('')
+              parts.append('Нативные живые обои для рабочего стола **Windows 10 / Windows 11 (включая 24H2+)** напрямую на **Direct3D 11 + DirectComposition + HLSL**.')
+              parts.append('')
+          else:
+              parts.append(f'## Neon Horizon — Android Live Wallpaper (v{ver})')
+              parts.append('')
+              parts.append('Нативные живые обои для **Android 7.0+** на базе `WallpaperService` и **OpenGL ES 3.0**.')
+              parts.append('')
+
+          if built_win:
+              parts.extend([
+                  '### Windows',
+                  '- **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.',
+                  '- **Оптимизированный рендер:** кэш фонового слоя (`BgCache`), даунсэмплированный Bloom (`1/9` сцены) и одновыборочный CRT/VHS-проход при нативном разрешении.',
+                  f'- **Файлы:** `NeonHorizonWallpaper-windows.exe` или `NeonHorizonWallpaper-v{ver}-windows.zip` (SHA-256 в `checksums-windows-sha256.txt`).',
+                  '',
+              ])
+
+          if built_and:
+              parts.extend([
+                  '### Android (API 24+ / Android 7.0+)',
+                  '- **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.',
+                  '- **Оптимизированный рендер:** кэш фонового слоя (`BgCache`), даунсэмплированный Bloom (`1/9` сцены) и одновыборочный CRT/VHS-проход.',
+                  '- **Настройки в реальном времени:** живое превью, 4 пресета, ползунки эффектов, лимит FPS (`24`/`30`/`60`/`120`/`Display VSync`) и автообновление через GitHub Releases.',
+                  f'- **Файлы:** `NeonHorizonWallpaper-android.apk` или `NeonHorizonWallpaper-v{ver}-android.apk` (SHA-256 в `checksums-android-sha256.txt`).',
+                  '',
+              ])
+
+          with open('/tmp/release_title.txt', 'w', encoding='utf-8') as f:
+              f.write(title)
+          with open('/tmp/release_notes.md', 'w', encoding='utf-8') as f:
+              f.write('\n'.join(parts))
+          PY
+
+          title=$(cat /tmp/release_title.txt)
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "No release assets found to publish" >&2
+            exit 1
+          fi
+
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            gh release upload "$REL_TAG" "${assets[@]}" --clobber
+            gh release edit "$REL_TAG" --title "$title" --notes-file /tmp/release_notes.md
+          else
+            gh release create "$REL_TAG" "${assets[@]}" \
+              --title "$title" \
+              --notes-file /tmp/release_notes.md
+          fi
