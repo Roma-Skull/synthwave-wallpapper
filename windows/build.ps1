@@ -199,6 +199,7 @@ $sceneShader = Join-Path $Root 'shaders\synthwave_scene.ps.hlsl'
 $miamiShader = Join-Path $Root 'shaders\miami_drive.ps.hlsl'
 $cycleShader = Join-Path $Root 'shaders\light_cycle.ps.hlsl'
 $outrunCycleShader = Join-Path $Root 'shaders\outrun_cycle.ps.hlsl'
+$bloomShader = Join-Path $Root 'shaders\bloom_downsample.ps.hlsl'
 $crtShader = Join-Path $Root 'shaders\crt_vhs.ps.hlsl'
 
 # 1b. Pre-compile HLSL shaders to DXBC bytecode so runtime startup is instantaneous (<5ms)
@@ -274,6 +275,7 @@ $sceneDxbc = Join-Path $BinShaderDir 'synthwave_scene.ps.dxbc'
 $miamiDxbc = Join-Path $BinShaderDir 'miami_drive.ps.dxbc'
 $cycleDxbc = Join-Path $BinShaderDir 'light_cycle.ps.dxbc'
 $outrunCycleDxbc = Join-Path $BinShaderDir 'outrun_cycle.ps.dxbc'
+$bloomDxbc = Join-Path $BinShaderDir 'bloom_downsample.ps.dxbc'
 $crtDxbc = Join-Path $BinShaderDir 'crt_vhs.ps.dxbc'
 
 [HlslPrecompiler]::CompileToFile($vsShader, 'vs_5_0', $vsDxbc)
@@ -281,6 +283,7 @@ $crtDxbc = Join-Path $BinShaderDir 'crt_vhs.ps.dxbc'
 [HlslPrecompiler]::CompileToFile($miamiShader, 'ps_5_0', $miamiDxbc)
 [HlslPrecompiler]::CompileToFile($cycleShader, 'ps_5_0', $cycleDxbc)
 [HlslPrecompiler]::CompileToFile($outrunCycleShader, 'ps_5_0', $outrunCycleDxbc)
+[HlslPrecompiler]::CompileToFile($bloomShader, 'ps_5_0', $bloomDxbc)
 [HlslPrecompiler]::CompileToFile($crtShader, 'ps_5_0', $crtDxbc)
 
 $asmInfoPath = Join-Path $env:TEMP 'neon_horizon_assembly_info.cs'
@@ -309,12 +312,14 @@ $rspLines = @(
     "/resource:`"$miamiDxbc`",miami_drive.ps.dxbc"
     "/resource:`"$cycleDxbc`",light_cycle.ps.dxbc"
     "/resource:`"$outrunCycleDxbc`",outrun_cycle.ps.dxbc"
+    "/resource:`"$bloomDxbc`",bloom_downsample.ps.dxbc"
     "/resource:`"$crtDxbc`",crt_vhs.ps.dxbc"
     "/resource:`"$vsShader`",fullscreen.vs.hlsl"
     "/resource:`"$sceneShader`",synthwave_scene.ps.hlsl"
     "/resource:`"$miamiShader`",miami_drive.ps.hlsl"
     "/resource:`"$cycleShader`",light_cycle.ps.hlsl"
     "/resource:`"$outrunCycleShader`",outrun_cycle.ps.hlsl"
+    "/resource:`"$bloomShader`",bloom_downsample.ps.hlsl"
     "/resource:`"$crtShader`",crt_vhs.ps.hlsl"
     '/reference:System.dll'
     '/reference:System.Drawing.dll'

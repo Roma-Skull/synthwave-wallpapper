@@ -1,7 +1,12 @@
+Texture2D bgCacheTex : register(t0);
+SamplerState linearClamp : register(s0);
+
 cbuffer SceneParams : register(b0) {
     float2 uResolution;
     float  uTime;
     float  uGridTime;
+    float  uLayerMode;
+    float3 _pad;
 };
 
 struct PSIn {
@@ -450,33 +455,24 @@ float4 main(PSIn input) : SV_Target {
     float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.255);
 
-    // Precompute perspective pink floor grid derivatives in uniform control flow
-    // Grid lines radiate from horizon vanishing point while scrolling fast LEFT under the riding cycle
-    float yFloor = max(0.0022, -p.y);
-    float depth = 0.24 / yFloor;
-    float worldX = p.x * depth * 1.15 + uGridTime * 1.65;
-    float worldZ = depth * 1.05;
-    float2 gCoord = float2(worldX, worldZ);
-    float2 gDeriv = max(float2(0.0008, 0.0008), fwidth(gCoord));
+    if (uLayerMode > 0.5 && uLayerMode < 1.5) {
+        if (p.y < -0.006) return float4(0.0, 0.0, 0.0, 0.0);
 
-    // 1. Cosmic Night -> Royal Cobalt Blue -> Horizon Magenta Sky
-    float3 skyTop = float3(0.015, 0.018, 0.068);
-    float3 skyMid = float3(0.045, 0.135, 0.460);
-    float3 skyHor = float3(0.560, 0.095, 0.540);
-    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
-    float3 col = lerp(skyHor, skyMid, ss(0.02, 0.44, tSky));
-    col = lerp(col, skyTop, ss(0.55, 0.96, tSky));
+        float3 skyTop = float3(0.015, 0.018, 0.068);
+        float3 skyMid = float3(0.045, 0.135, 0.460);
+        float3 skyHor = float3(0.560, 0.095, 0.540);
+        float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+        float3 col = lerp(skyHor, skyMid, ss(0.02, 0.44, tSky));
+        col = lerp(col, skyTop, ss(0.55, 0.96, tSky));
 
-    // 2. Crisp Golden Sliced Outrun Sun High Behind the Central Wireframe Peak
-    float2 pSun = p - sunCenter;
-    float sunR = 0.165;
-    float sunDist = length(pSun);
-    float sunBreath = 1.0 + 0.03 * sin(uTime * 1.25);
+        float2 pSun = p - sunCenter;
+        float sunR = 0.165;
+        float sunDist = length(pSun);
+        float sunBreath = 1.0 + 0.03 * sin(uTime * 1.25);
 
-    float sunHalo = exp(-max(0.0, sunDist - sunR) * 11.0) * 0.45 * sunBreath;
-    col += float3(1.0, 0.48, 0.18) * sunHalo;
+        float sunHalo = exp(-max(0.0, sunDist - sunR) * 11.0) * 0.45 * sunBreath;
+        col += float3(1.0, 0.48, 0.18) * sunHalo;
 
-    if (p.y >= -0.002) {
         float2 starCoord = float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH);
         col += renderStarfield(starCoord, tSky, uTime) * ss(sunR * 0.95, sunR * 1.45, sunDist);
 
@@ -487,7 +483,6 @@ float4 main(PSIn input) : SV_Target {
             float3 sunBotCol = float3(1.0, 0.68, 0.08);
             float3 discCol = lerp(sunBotCol, sunTopCol, ss(0.05, 0.90, hNorm));
 
-            // Horizontal sky gaps: thin slits near center widening toward the bottom of the golden sun
             float bandH = clamp((hNorm - 0.04) / 0.58, 0.0, 1.0);
             float slicePhase = frac(bandH * 6.2 + uTime * 0.22);
             float sliceThickness = lerp(0.42, 0.06, bandH);
@@ -497,8 +492,65 @@ float4 main(PSIn input) : SV_Target {
             col = lerp(col, discCol, discMask * (1.0 - sliceGap));
         }
 
-        // 3. Slow-Scrolling Triangulated Cyan Wireframe Mountains
         col = renderWireframeMountains(p, pxScale, col, uGridTime);
+        return float4(saturate(col), 1.0);
+    }
+
+    // Precompute perspective pink floor grid derivatives in uniform control flow
+    // Grid lines radiate from horizon vanishing point while scrolling fast LEFT under the riding cycle
+    float yFloor = max(0.0022, -p.y);
+    float depth = 0.24 / yFloor;
+    float worldX = p.x * depth * 1.15 + uGridTime * 1.65;
+    float worldZ = depth * 1.05;
+    float2 gCoord = float2(worldX, worldZ);
+    float2 gDeriv = max(float2(0.0008, 0.0008), fwidth(gCoord));
+
+    float3 col = float3(0.0, 0.0, 0.0);
+
+    if (p.y >= -0.002) {
+        if (uLayerMode >= 1.5) {
+            col = bgCacheTex.SampleLevel(linearClamp, input.uv, 0).rgb;
+        } else {
+            // 1. Cosmic Night -> Royal Cobalt Blue -> Horizon Magenta Sky
+            float3 skyTop = float3(0.015, 0.018, 0.068);
+            float3 skyMid = float3(0.045, 0.135, 0.460);
+            float3 skyHor = float3(0.560, 0.095, 0.540);
+            float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+            col = lerp(skyHor, skyMid, ss(0.02, 0.44, tSky));
+            col = lerp(col, skyTop, ss(0.55, 0.96, tSky));
+
+            // 2. Crisp Golden Sliced Outrun Sun High Behind the Central Wireframe Peak
+            float2 pSun = p - sunCenter;
+            float sunR = 0.165;
+            float sunDist = length(pSun);
+            float sunBreath = 1.0 + 0.03 * sin(uTime * 1.25);
+
+            float sunHalo = exp(-max(0.0, sunDist - sunR) * 11.0) * 0.45 * sunBreath;
+            col += float3(1.0, 0.48, 0.18) * sunHalo;
+
+            float2 starCoord = float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH);
+            col += renderStarfield(starCoord, tSky, uTime) * ss(sunR * 0.95, sunR * 1.45, sunDist);
+
+            float discMask = 1.0 - ss(sunR - pxScale * 1.4, sunR + pxScale * 1.4, sunDist);
+            if (discMask > 0.001) {
+                float hNorm = clamp((pSun.y + sunR) / (2.0 * sunR), 0.0, 1.0);
+                float3 sunTopCol = float3(1.0, 0.94, 0.24);
+                float3 sunBotCol = float3(1.0, 0.68, 0.08);
+                float3 discCol = lerp(sunBotCol, sunTopCol, ss(0.05, 0.90, hNorm));
+
+                // Horizontal sky gaps: thin slits near center widening toward the bottom of the golden sun
+                float bandH = clamp((hNorm - 0.04) / 0.58, 0.0, 1.0);
+                float slicePhase = frac(bandH * 6.2 + uTime * 0.22);
+                float sliceThickness = lerp(0.42, 0.06, bandH);
+                float sliceGap = ss(sliceThickness + 0.035, sliceThickness - 0.015, slicePhase)
+                    * step(bandH, 0.96)
+                    * ss(0.96, 0.80, bandH);
+                col = lerp(col, discCol, discMask * (1.0 - sliceGap));
+            }
+
+            // 3. Slow-Scrolling Triangulated Cyan Wireframe Mountains
+            col = renderWireframeMountains(p, pxScale, col, uGridTime);
+        }
     } else {
         // 4. Reflective Hot-Pink Perspective Neon Grid Floor
         float yFloorRaw = -p.y;

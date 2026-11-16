@@ -1,7 +1,12 @@
+Texture2D bgCacheTex : register(t0);
+SamplerState linearClamp : register(s0);
+
 cbuffer SceneParams : register(b0) {
     float2 uResolution;
     float  uTime;
     float  uGridTime;
+    float  uLayerMode;
+    float3 _pad;
 };
 
 struct PSIn {
@@ -565,38 +570,28 @@ float4 main(PSIn input) : SV_Target {
     float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.088);
 
-    // Precompute perspective road coordinates in uniform control flow
-    float yFloor = max(0.0022, -p.y);
-    float depth = 0.26 / yFloor;
-    float worldX = p.x * depth;
-    float driveSpeed = 3.1;
-    float worldZ = depth + uGridTime * driveSpeed;
-    float2 roadCoord = float2(worldX * 3.4, worldZ * 0.65);
-    float2 roadDeriv = max(float2(0.0008, 0.0008), fwidth(roadCoord));
-    float dEdgeScale = max(0.001, fwidth(worldX));
+    if (uLayerMode > 0.5 && uLayerMode < 1.5) {
+        if (p.y < -0.006) return float4(0.0, 0.0, 0.0, 0.0);
 
-    // 1. Warm Miami Twilight Sky & Sunset Haze
-    float3 skyTop = float3(0.039, 0.020, 0.114);
-    float3 skyMid = float3(0.145, 0.039, 0.260);
-    float3 skyHor = float3(0.410, 0.078, 0.310);
-    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
-    float3 col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
-    col = lerp(col, skyTop, ss(0.30, 0.92, tSky));
+        float3 skyTop = float3(0.039, 0.020, 0.114);
+        float3 skyMid = float3(0.145, 0.039, 0.260);
+        float3 skyHor = float3(0.410, 0.078, 0.310);
+        float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+        float3 col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
+        col = lerp(col, skyTop, ss(0.30, 0.92, tSky));
 
-    float horizonWarm = exp(-abs(p.x) * 2.1) * exp(-max(0.0, p.y) * 5.5);
-    col += float3(0.35, 0.08, 0.16) * horizonWarm;
+        float horizonWarm = exp(-abs(p.x) * 2.1) * exp(-max(0.0, p.y) * 5.5);
+        col += float3(0.35, 0.08, 0.16) * horizonWarm;
 
-    // 2. Retro Sliced Outrun Sunset
-    float2 pSun = p - sunCenter;
-    float sunR = 0.192;
-    float sunDist = length(pSun);
-    float sunBreath = 1.0 + 0.04 * sin(uTime * 1.25);
+        float2 pSun = p - sunCenter;
+        float sunR = 0.192;
+        float sunDist = length(pSun);
+        float sunBreath = 1.0 + 0.04 * sin(uTime * 1.25);
 
-    float corona = exp(-max(0.0, sunDist - sunR) * 8.5) * 0.68 * sunBreath;
-    float wideGlow = exp(-length(pSun * float2(0.7, 1.35)) * 2.6) * 0.45;
-    col += float3(1.0, 0.18, 0.50) * (corona + wideGlow);
+        float corona = exp(-max(0.0, sunDist - sunR) * 8.5) * 0.68 * sunBreath;
+        float wideGlow = exp(-length(pSun * float2(0.7, 1.35)) * 2.6) * 0.45;
+        col += float3(1.0, 0.18, 0.50) * (corona + wideGlow);
 
-    if (p.y >= -0.002) {
         col += renderStarfield(float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH), tSky * (1.0 - horY), uTime)
             * ss(sunR * 0.95, sunR * 1.45, sunDist);
 
@@ -619,8 +614,72 @@ float4 main(PSIn input) : SV_Target {
             col = lerp(col, discCol, discMask * (1.0 - sliceGap));
         }
 
-        // 3. Miami Art Deco Neon Skyline
         col = renderMiamiSkyline(p, pxScale, col, uTime);
+        return float4(saturate(col), 1.0);
+    }
+
+    // Precompute perspective road coordinates in uniform control flow
+    float yFloor = max(0.0022, -p.y);
+    float depth = 0.26 / yFloor;
+    float worldX = p.x * depth;
+    float driveSpeed = 3.1;
+    float worldZ = depth + uGridTime * driveSpeed;
+    float2 roadCoord = float2(worldX * 3.4, worldZ * 0.65);
+    float2 roadDeriv = max(float2(0.0008, 0.0008), fwidth(roadCoord));
+    float dEdgeScale = max(0.001, fwidth(worldX));
+
+    float3 col = float3(0.0, 0.0, 0.0);
+
+    if (p.y >= -0.002) {
+        if (uLayerMode >= 1.5) {
+            col = bgCacheTex.SampleLevel(linearClamp, input.uv, 0).rgb;
+        } else {
+            // 1. Warm Miami Twilight Sky & Sunset Haze
+            float3 skyTop = float3(0.039, 0.020, 0.114);
+            float3 skyMid = float3(0.145, 0.039, 0.260);
+            float3 skyHor = float3(0.410, 0.078, 0.310);
+            float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+            col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
+            col = lerp(col, skyTop, ss(0.30, 0.92, tSky));
+
+            float horizonWarm = exp(-abs(p.x) * 2.1) * exp(-max(0.0, p.y) * 5.5);
+            col += float3(0.35, 0.08, 0.16) * horizonWarm;
+
+            // 2. Retro Sliced Outrun Sunset
+            float2 pSun = p - sunCenter;
+            float sunR = 0.192;
+            float sunDist = length(pSun);
+            float sunBreath = 1.0 + 0.04 * sin(uTime * 1.25);
+
+            float corona = exp(-max(0.0, sunDist - sunR) * 8.5) * 0.68 * sunBreath;
+            float wideGlow = exp(-length(pSun * float2(0.7, 1.35)) * 2.6) * 0.45;
+            col += float3(1.0, 0.18, 0.50) * (corona + wideGlow);
+
+            col += renderStarfield(float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH), tSky * (1.0 - horY), uTime)
+                * ss(sunR * 0.95, sunR * 1.45, sunDist);
+
+            float discMask = (1.0 - ss(sunR - pxScale * 1.5, sunR + pxScale * 1.5, sunDist))
+                * ss(-pxScale, pxScale * 1.5, p.y);
+            if (discMask > 0.001) {
+                float hNorm = clamp((pSun.y + sunR) / (2.0 * sunR), 0.0, 1.0);
+                float3 sunTopCol = float3(1.0, 0.94, 0.40);
+                float3 sunMidCol = float3(1.0, 0.43, 0.22);
+                float3 sunBotCol = float3(1.0, 0.14, 0.50);
+                float3 discCol = lerp(sunBotCol, sunMidCol, ss(0.08, 0.52, hNorm));
+                discCol = lerp(discCol, sunTopCol, ss(0.45, 0.92, hNorm));
+
+                float visH = clamp((hNorm - 0.28) / 0.40, 0.0, 1.0);
+                float slicePhase = frac(visH * 5.6 + uTime * 0.25);
+                float sliceThickness = lerp(0.40, 0.04, visH);
+                float sliceGap = ss(sliceThickness + 0.04, sliceThickness - 0.015, slicePhase)
+                    * step(visH, 0.96)
+                    * ss(0.96, 0.80, visH);
+                col = lerp(col, discCol, discMask * (1.0 - sliceGap));
+            }
+
+            // 3. Miami Art Deco Neon Skyline
+            col = renderMiamiSkyline(p, pxScale, col, uTime);
+        }
     } else {
         // 4. Widened 4-Lane Miami Boulevard Street (Road + Curbs + Side Grid)
         float yFloorRaw = -p.y;

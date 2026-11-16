@@ -27,19 +27,42 @@ namespace NeonHorizonWallpaper
         public IntPtr SceneTexture;
         public IntPtr SceneRtv;
         public IntPtr SceneSrv;
+        public IntPtr BgCacheTexture;
+        public IntPtr BgCacheRtv;
+        public IntPtr BgCacheSrv;
+        public IntPtr BloomTexture;
+        public IntPtr BloomRtv;
+        public IntPtr BloomSrv;
         public uint SwapBufferCount;
         public uint SwapFormat;
         public uint SceneWidth;
         public uint SceneHeight;
+        public uint BloomWidth;
+        public uint BloomHeight;
+        public string BgCacheScene;
+        public float BgCacheLastTime;
+        public float BgCacheLastGridTime;
+        public uint BgCacheFrameCounter;
+        public bool BgCacheValid;
 
         public void ReleaseTargets()
         {
             D3D11Native.SafeRelease(ref BackBufferRtv);
+            D3D11Native.SafeRelease(ref BloomSrv);
+            D3D11Native.SafeRelease(ref BloomRtv);
+            D3D11Native.SafeRelease(ref BloomTexture);
+            D3D11Native.SafeRelease(ref BgCacheSrv);
+            D3D11Native.SafeRelease(ref BgCacheRtv);
+            D3D11Native.SafeRelease(ref BgCacheTexture);
             D3D11Native.SafeRelease(ref SceneSrv);
             D3D11Native.SafeRelease(ref SceneRtv);
             D3D11Native.SafeRelease(ref SceneTexture);
             SceneWidth = 0;
             SceneHeight = 0;
+            BloomWidth = 0;
+            BloomHeight = 0;
+            BgCacheValid = false;
+            BgCacheFrameCounter = 0;
         }
 
         public void Dispose()
@@ -62,6 +85,7 @@ namespace NeonHorizonWallpaper
         private IntPtr _vertexShader;
         private readonly Dictionary<string, IntPtr> _scenePixelShaders = new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
         private IntPtr _defaultScenePixelShader;
+        private IntPtr _bloomPixelShader;
         private IntPtr _crtPixelShader;
         private IntPtr _sceneConstBuffer;
         private IntPtr _crtConstBuffer;
@@ -69,11 +93,12 @@ namespace NeonHorizonWallpaper
         private IntPtr _rasterState;
 
         private readonly IntPtr[] _srvOne = new IntPtr[1];
-        private readonly IntPtr[] _srvNull = new IntPtr[] { IntPtr.Zero };
+        private readonly IntPtr[] _srvTwo = new IntPtr[2];
+        private readonly IntPtr[] _srvTwoNull = new IntPtr[] { IntPtr.Zero, IntPtr.Zero };
         private readonly IntPtr[] _rtvOne = new IntPtr[1];
+        private readonly IntPtr[] _rtvNull = new IntPtr[] { IntPtr.Zero };
         private readonly IntPtr[] _cbOne = new IntPtr[1];
         private readonly IntPtr[] _samplerOne = new IntPtr[1];
-        private readonly float[] _clearColor = new float[] { 0.0157f, 0.0039f, 0.0471f, 1.0f };
 
         public bool IsInitialized { get { return _device != IntPtr.Zero; } }
 
@@ -346,6 +371,10 @@ namespace NeonHorizonWallpaper
                         _defaultScenePixelShader = ps;
                     }
                 }
+
+                byte[] bloomBytes = LoadShaderBytecode("bloom_downsample.ps.hlsl", "ps_5_0", out errorMessage);
+                if (bloomBytes == null) return false;
+                if (!CreateShaderFromBytecode(bloomBytes, false, out _bloomPixelShader, out errorMessage)) return false;
 
                 byte[] crtBytes = LoadShaderBytecode("crt_vhs.ps.hlsl", "ps_5_0", out errorMessage);
                 if (crtBytes == null) return false;
@@ -687,38 +716,102 @@ namespace NeonHorizonWallpaper
             sceneH = Math.Max(64u, (uint)Math.Round(targetH * SceneRenderScale));
         }
 
-        private bool EnsureSurfaceSceneTarget(D3D11Surface surface, uint sceneW, uint sceneH)
+        private static void ComputeBloomDimensions(uint sceneW, uint sceneH, out uint bloomW, out uint bloomH)
         {
-            if (surface.SceneWidth == sceneW && surface.SceneHeight == sceneH && surface.SceneRtv != IntPtr.Zero && surface.SceneSrv != IntPtr.Zero)
+            bloomW = Math.Max(32u, sceneW / 3u);
+            bloomH = Math.Max(32u, sceneH / 3u);
+        }
+
+        private bool EnsureSurfaceSceneTarget(D3D11Surface surface, uint sceneW, uint sceneH, uint bloomW, uint bloomH)
+        {
+            if (surface.SceneWidth == sceneW && surface.SceneHeight == sceneH &&
+                surface.BloomWidth == bloomW && surface.BloomHeight == bloomH &&
+                surface.SceneRtv != IntPtr.Zero && surface.SceneSrv != IntPtr.Zero &&
+                surface.BgCacheRtv != IntPtr.Zero && surface.BgCacheSrv != IntPtr.Zero &&
+                surface.BloomRtv != IntPtr.Zero && surface.BloomSrv != IntPtr.Zero)
             {
                 return true;
             }
 
-            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvNull);
-            D3D11Native.ContextOMSetRenderTargets(_context, new IntPtr[] { IntPtr.Zero });
+            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvTwoNull);
+            D3D11Native.ContextOMSetRenderTargets(_context, _rtvNull);
+            D3D11Native.SafeRelease(ref surface.BloomSrv);
+            D3D11Native.SafeRelease(ref surface.BloomRtv);
+            D3D11Native.SafeRelease(ref surface.BloomTexture);
+            D3D11Native.SafeRelease(ref surface.BgCacheSrv);
+            D3D11Native.SafeRelease(ref surface.BgCacheRtv);
+            D3D11Native.SafeRelease(ref surface.BgCacheTexture);
             D3D11Native.SafeRelease(ref surface.SceneSrv);
             D3D11Native.SafeRelease(ref surface.SceneRtv);
             D3D11Native.SafeRelease(ref surface.SceneTexture);
             surface.SceneWidth = 0;
             surface.SceneHeight = 0;
+            surface.BloomWidth = 0;
+            surface.BloomHeight = 0;
+            surface.BgCacheValid = false;
 
             string err;
             if (!CreateOffscreenSceneTarget(sceneW, sceneH, out surface.SceneTexture, out surface.SceneRtv, out surface.SceneSrv, out err))
             {
-                Logger.Error("EnsureSurfaceSceneTarget failed: " + err);
+                Logger.Error("EnsureSurfaceSceneTarget(Scene) failed: " + err);
+                return false;
+            }
+            if (!CreateOffscreenSceneTarget(sceneW, sceneH, out surface.BgCacheTexture, out surface.BgCacheRtv, out surface.BgCacheSrv, out err))
+            {
+                Logger.Error("EnsureSurfaceSceneTarget(BgCache) failed: " + err);
+                return false;
+            }
+            if (!CreateOffscreenSceneTarget(bloomW, bloomH, out surface.BloomTexture, out surface.BloomRtv, out surface.BloomSrv, out err))
+            {
+                Logger.Error("EnsureSurfaceSceneTarget(Bloom) failed: " + err);
                 return false;
             }
             surface.SceneWidth = sceneW;
             surface.SceneHeight = sceneH;
+            surface.BloomWidth = bloomW;
+            surface.BloomHeight = bloomH;
             return true;
+        }
+
+        private static uint GetBgCacheRefreshInterval(string sceneId)
+        {
+            if (string.Equals(sceneId, "light_cycle", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(sceneId, "outrun_cycle", StringComparison.OrdinalIgnoreCase))
+            {
+                return 3u;
+            }
+            return 4u;
+        }
+
+        private static bool ShouldRefreshBgCache(D3D11Surface surface, AppSettings settings, float sceneTime, float gridTime)
+        {
+            if (!surface.BgCacheValid || !string.Equals(surface.BgCacheScene, settings.Scene, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            if (sceneTime < surface.BgCacheLastTime || Math.Abs(sceneTime - surface.BgCacheLastTime) > 1.5f ||
+                gridTime < surface.BgCacheLastGridTime)
+            {
+                return true;
+            }
+            uint interval = GetBgCacheRefreshInterval(settings.Scene);
+            return (surface.BgCacheFrameCounter % interval) == 0u;
         }
 
         private void RenderPasses(
             IntPtr sceneRtv,
             IntPtr sceneSrv,
+            IntPtr bgCacheRtv,
+            IntPtr bgCacheSrv,
+            bool renderBgCache,
+            bool useBgCache,
+            IntPtr bloomRtv,
+            IntPtr bloomSrv,
             IntPtr targetRtv,
             uint sceneWidth,
             uint sceneHeight,
+            uint bloomWidth,
+            uint bloomHeight,
             uint targetWidth,
             uint targetHeight,
             uint dpi,
@@ -737,24 +830,69 @@ namespace NeonHorizonWallpaper
             D3D11Native.ContextRSSetState(_context, _rasterState);
             D3D11Native.ContextRSSetViewports(_context, ref vp);
             D3D11Native.ContextVSSetShader(_context, _vertexShader);
+            _cbOne[0] = _sceneConstBuffer;
+            D3D11Native.ContextPSSetConstantBuffers(_context, 0, _cbOne);
+            _samplerOne[0] = _linearSampler;
+            D3D11Native.ContextPSSetSamplers(_context, 0, _samplerOne);
 
-            // Pass 1: Active Synthwave scene -> offscreen texture (fullscreen triangle overwrites 100%, no clear needed)
+            IntPtr scenePs = ResolveScenePixelShader(settings.Scene);
             D3D11Native.SceneConstants sc = new D3D11Native.SceneConstants();
             sc.ResolutionX = sceneWidth;
             sc.ResolutionY = sceneHeight;
             sc.Time = sceneTime;
             sc.GridTime = gridTime;
+
+            // Pass 1a (periodic): Refresh cached far background (sky + sun + slow skyline/mountains)
+            if (renderBgCache && bgCacheRtv != IntPtr.Zero)
+            {
+                sc.LayerMode = 1.0f;
+                UpdateConstantBuffer(_sceneConstBuffer, sc);
+
+                D3D11Native.ContextPSSetShaderResources(_context, 0, _srvTwoNull);
+                _rtvOne[0] = bgCacheRtv;
+                D3D11Native.ContextOMSetRenderTargets(_context, _rtvOne);
+                D3D11Native.ContextPSSetShader(_context, scenePs);
+                D3D11Native.ContextDraw(_context, 3, 0);
+                D3D11Native.ContextOMSetRenderTargets(_context, _rtvNull);
+            }
+
+            // Pass 1b: Scene foreground + road/grid/cycle composited with BgCache (or full pass if useBgCache=false)
+            sc.LayerMode = (useBgCache && bgCacheSrv != IntPtr.Zero) ? 2.0f : 0.0f;
             UpdateConstantBuffer(_sceneConstBuffer, sc);
 
-            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvNull);
+            if (useBgCache && bgCacheSrv != IntPtr.Zero)
+            {
+                _srvOne[0] = bgCacheSrv;
+                D3D11Native.ContextPSSetShaderResources(_context, 0, _srvOne);
+            }
+            else
+            {
+                D3D11Native.ContextPSSetShaderResources(_context, 0, _srvTwoNull);
+            }
             _rtvOne[0] = sceneRtv;
             D3D11Native.ContextOMSetRenderTargets(_context, _rtvOne);
-            D3D11Native.ContextPSSetShader(_context, ResolveScenePixelShader(settings.Scene));
-            _cbOne[0] = _sceneConstBuffer;
-            D3D11Native.ContextPSSetConstantBuffers(_context, 0, _cbOne);
+            D3D11Native.ContextPSSetShader(_context, scenePs);
             D3D11Native.ContextDraw(_context, 3, 0);
+            D3D11Native.ContextOMSetRenderTargets(_context, _rtvNull);
 
-            // Pass 2: CRT/VHS post-processing at native target resolution (wider scanline period on 4K/5K displays)
+            // Pass 1c: 1/9-scene Bloom extraction + soft blur (skipped when Bloom is off)
+            bool runBloom = settings.Enabled && settings.Bloom > 0 && bloomRtv != IntPtr.Zero && _bloomPixelShader != IntPtr.Zero;
+            if (runBloom)
+            {
+                vp.Width = bloomWidth;
+                vp.Height = bloomHeight;
+                D3D11Native.ContextRSSetViewports(_context, ref vp);
+
+                _srvOne[0] = sceneSrv;
+                D3D11Native.ContextPSSetShaderResources(_context, 0, _srvOne);
+                _rtvOne[0] = bloomRtv;
+                D3D11Native.ContextOMSetRenderTargets(_context, _rtvOne);
+                D3D11Native.ContextPSSetShader(_context, _bloomPixelShader);
+                D3D11Native.ContextDraw(_context, 3, 0);
+                D3D11Native.ContextOMSetRenderTargets(_context, _rtvNull);
+            }
+
+            // Pass 2: CRT/VHS post-processing at native target resolution (wider scanline period, single-tap Bloom lookup)
             vp.Width = targetWidth;
             vp.Height = targetHeight;
             D3D11Native.ContextRSSetViewports(_context, ref vp);
@@ -784,14 +922,13 @@ namespace NeonHorizonWallpaper
             D3D11Native.ContextPSSetShader(_context, _crtPixelShader);
             _cbOne[0] = _crtConstBuffer;
             D3D11Native.ContextPSSetConstantBuffers(_context, 0, _cbOne);
-            _samplerOne[0] = _linearSampler;
-            D3D11Native.ContextPSSetSamplers(_context, 0, _samplerOne);
-            _srvOne[0] = sceneSrv;
-            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvOne);
+            _srvTwo[0] = sceneSrv;
+            _srvTwo[1] = runBloom ? bloomSrv : IntPtr.Zero;
+            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvTwo);
             D3D11Native.ContextDraw(_context, 3, 0);
 
-            // Unbind SRV so next frame Pass 1 can safely write to SceneRtv
-            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvNull);
+            // Unbind SRVs so next frame Pass 1 can safely write to SceneRtv / BgCacheRtv / BloomRtv
+            D3D11Native.ContextPSSetShaderResources(_context, 0, _srvTwoNull);
         }
 
         public int RenderAndPresent(
@@ -807,14 +944,25 @@ namespace NeonHorizonWallpaper
 
             uint sceneW, sceneH;
             ComputeSceneDimensions(surface.Width, surface.Height, out sceneW, out sceneH);
-            if (!EnsureSurfaceSceneTarget(surface, sceneW, sceneH)) return -1;
+            uint bloomW, bloomH;
+            ComputeBloomDimensions(sceneW, sceneH, out bloomW, out bloomH);
+            if (!EnsureSurfaceSceneTarget(surface, sceneW, sceneH, bloomW, bloomH)) return -1;
 
+            bool refreshBg = ShouldRefreshBgCache(surface, settings, sceneTime, gridTime);
             RenderPasses(
                 surface.SceneRtv,
                 surface.SceneSrv,
+                surface.BgCacheRtv,
+                surface.BgCacheSrv,
+                refreshBg,
+                true,
+                surface.BloomRtv,
+                surface.BloomSrv,
                 surface.BackBufferRtv,
                 sceneW,
                 sceneH,
+                bloomW,
+                bloomH,
                 surface.Width,
                 surface.Height,
                 dpi,
@@ -822,6 +970,15 @@ namespace NeonHorizonWallpaper
                 gridTime,
                 crtTime,
                 settings);
+
+            if (refreshBg)
+            {
+                surface.BgCacheValid = true;
+                surface.BgCacheScene = settings.Scene;
+                surface.BgCacheLastTime = sceneTime;
+                surface.BgCacheLastGridTime = gridTime;
+            }
+            surface.BgCacheFrameCounter++;
 
             return D3D11Native.SwapChainPresent(surface.SwapChain, vsync ? 1u : 0u, 0u);
         }
@@ -843,9 +1000,14 @@ namespace NeonHorizonWallpaper
             uint h = (uint)Math.Max(32, height);
             uint sceneW, sceneH;
             ComputeSceneDimensions(w, h, out sceneW, out sceneH);
+            uint bloomW, bloomH;
+            ComputeBloomDimensions(sceneW, sceneH, out bloomW, out bloomH);
             IntPtr sceneTex = IntPtr.Zero;
             IntPtr sceneRtv = IntPtr.Zero;
             IntPtr sceneSrv = IntPtr.Zero;
+            IntPtr bloomTex = IntPtr.Zero;
+            IntPtr bloomRtv = IntPtr.Zero;
+            IntPtr bloomSrv = IntPtr.Zero;
             IntPtr finalTex = IntPtr.Zero;
             IntPtr finalRtv = IntPtr.Zero;
             IntPtr stagingTex = IntPtr.Zero;
@@ -853,6 +1015,10 @@ namespace NeonHorizonWallpaper
             try
             {
                 if (!CreateOffscreenSceneTarget(sceneW, sceneH, out sceneTex, out sceneRtv, out sceneSrv, out errorMessage))
+                {
+                    return null;
+                }
+                if (!CreateOffscreenSceneTarget(bloomW, bloomH, out bloomTex, out bloomRtv, out bloomSrv, out errorMessage))
                 {
                     return null;
                 }
@@ -879,7 +1045,13 @@ namespace NeonHorizonWallpaper
                 hr = D3D11Native.DeviceCreateTexture2D(_device, ref td, out stagingTex);
                 if (hr < 0) { errorMessage = string.Format("CreateTexture2D(Staging) failed: 0x{0:X8}", hr); return null; }
 
-                RenderPasses(sceneRtv, sceneSrv, finalRtv, sceneW, sceneH, w, h, dpi, sceneTime, gridTime, crtTime, settings);
+                RenderPasses(
+                    sceneRtv, sceneSrv,
+                    IntPtr.Zero, IntPtr.Zero, false, false,
+                    bloomRtv, bloomSrv,
+                    finalRtv,
+                    sceneW, sceneH, bloomW, bloomH, w, h, dpi,
+                    sceneTime, gridTime, crtTime, settings);
                 D3D11Native.ContextCopyResource(_context, stagingTex, finalTex);
 
                 D3D11Native.D3D11_MAPPED_SUBRESOURCE mapped;
@@ -908,6 +1080,9 @@ namespace NeonHorizonWallpaper
                 D3D11Native.SafeRelease(ref stagingTex);
                 D3D11Native.SafeRelease(ref finalRtv);
                 D3D11Native.SafeRelease(ref finalTex);
+                D3D11Native.SafeRelease(ref bloomSrv);
+                D3D11Native.SafeRelease(ref bloomRtv);
+                D3D11Native.SafeRelease(ref bloomTex);
                 D3D11Native.SafeRelease(ref sceneSrv);
                 D3D11Native.SafeRelease(ref sceneRtv);
                 D3D11Native.SafeRelease(ref sceneTex);
@@ -935,6 +1110,7 @@ namespace NeonHorizonWallpaper
             D3D11Native.SafeRelease(ref _linearSampler);
             D3D11Native.SafeRelease(ref _crtConstBuffer);
             D3D11Native.SafeRelease(ref _sceneConstBuffer);
+            D3D11Native.SafeRelease(ref _bloomPixelShader);
             D3D11Native.SafeRelease(ref _crtPixelShader);
             foreach (KeyValuePair<string, IntPtr> kv in _scenePixelShaders)
             {
