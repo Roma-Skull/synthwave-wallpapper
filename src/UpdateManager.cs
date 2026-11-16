@@ -128,6 +128,7 @@ namespace NeonHorizonWallpaper
         public const string RepoName = "synthwave-wallpapper";
         public const string ReleasesApiUrl = "https://api.github.com/repos/" + RepoOwner + "/" + RepoName + "/releases?per_page=25";
         public const string ReleasesPageUrl = "https://github.com/" + RepoOwner + "/" + RepoName + "/releases";
+        public static readonly TimeSpan AutoCheckInterval = TimeSpan.FromHours(6);
 
         private static bool _tlsInitialized;
 
