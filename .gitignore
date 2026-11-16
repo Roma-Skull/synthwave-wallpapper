@@ -1,0 +1,15 @@
+# Build outputs & release packages
+dist/
+shaders/bin/
+assets/*.ico
+*.exe
+*.zip
+
+# IDE / temp / logs
+*.user
+*.suo
+*.tmp
+*.log
+scratch/
+Thumbs.db
+.DS_Store
