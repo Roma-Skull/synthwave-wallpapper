@@ -123,6 +123,8 @@ namespace NeonHorizonWallpaper
         private string _pendingStageError;
         private UpdateReleaseInfo _pendingStageRelease;
         private string _updateBtnLabel = "Updates";
+        private DateTime _lastAutoCheckUtc = DateTime.MinValue;
+        private string _notifiedUpdateTag;
 
         private bool _manualPaused;
         private bool _autoPausedFullscreen;
@@ -219,12 +221,16 @@ namespace NeonHorizonWallpaper
                         _startupUpdateTimer.Dispose();
                         _startupUpdateTimer = null;
                     }
-                    if (!_exiting)
+                    if (!_exiting && _settings.AutoCheckUpdates)
                     {
                         StartUpdateCheck(false);
                     }
                 };
                 _startupUpdateTimer.Start();
+            }
+            else
+            {
+                _lastAutoCheckUtc = DateTime.UtcNow;
             }
         }
 
@@ -650,6 +656,18 @@ namespace NeonHorizonWallpaper
             {
                 RenderAllWindows(true);
             }
+
+            if (_settings.AutoCheckUpdates && !_previewOnly && !_updateBusy && _startupUpdateTimer == null)
+            {
+                if (_lastAutoCheckUtc == DateTime.MinValue)
+                {
+                    _lastAutoCheckUtc = DateTime.UtcNow;
+                }
+                else if ((DateTime.UtcNow - _lastAutoCheckUtc) >= UpdateManager.AutoCheckInterval)
+                {
+                    StartUpdateCheck(false);
+                }
+            }
         }
 
         private bool ShouldAnimateNow()
@@ -898,6 +916,7 @@ namespace NeonHorizonWallpaper
         private void StartUpdateCheck(bool userInitiated)
         {
             if (_updateBusy || _exiting) return;
+            _lastAutoCheckUtc = DateTime.UtcNow;
             _updateBusy = true;
             _updateBtnLabel = userInitiated ? "Checking..." : _updateBtnLabel;
             SyncUpdateUi();
@@ -1029,8 +1048,9 @@ namespace NeonHorizonWallpaper
                     {
                         PromptAndInstallUpdate(_availableUpdate);
                     }
-                    else
+                    else if (!string.Equals(_notifiedUpdateTag, _availableUpdate.TagName, StringComparison.OrdinalIgnoreCase))
                     {
+                        _notifiedUpdateTag = _availableUpdate.TagName;
                         try
                         {
                             _trayIcon.ShowBalloonTip(

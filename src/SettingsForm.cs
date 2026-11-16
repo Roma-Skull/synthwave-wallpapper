@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -124,7 +125,7 @@ namespace NeonHorizonWallpaper
 
         private void UpdateFromMouseX(int x)
         {
-            int pad = 8;
+            int pad = Math.Max(8, Height / 2);
             int trackW = Math.Max(1, Width - pad * 2);
             double norm = Math.Max(0.0, Math.Min(1.0, (double)(x - pad) / trackW));
             Value = (int)Math.Round(_min + norm * (_max - _min));
@@ -171,7 +172,7 @@ namespace NeonHorizonWallpaper
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.Clear(Parent != null ? Parent.BackColor : Color.FromArgb(18, 9, 36));
 
-            int pad = 8;
+            int pad = Math.Max(8, Height / 2);
             int trackH = Math.Max(5, (int)Math.Round(Height * 0.28));
             int trackY = (Height - trackH) / 2;
             int trackW = Math.Max(10, Width - pad * 2);
@@ -273,8 +274,14 @@ namespace NeonHorizonWallpaper
         private Label _valVignette;
         private Label _valGridSpeed;
 
+        private readonly List<Font> _ownedFonts = new List<Font>();
+
         private bool _updatingUi;
         private bool _allowClose;
+        private int _builtDpi = 96;
+        private string _lastUpdateBtnText = "Updates";
+        private bool _lastUpdateHighlight;
+        private bool _lastUpdateBusy;
 
         public SettingsForm(
             Icon appIcon,
@@ -304,13 +311,114 @@ namespace NeonHorizonWallpaper
             MinimizeBox = true;
             BackColor = ColBgDeep;
             ForeColor = ColTextMain;
+            AutoScaleMode = AutoScaleMode.None;
             Font = new Font("Segoe UI", 9.0f, FontStyle.Regular);
-            AutoScaleMode = AutoScaleMode.Dpi;
-            AutoScaleDimensions = new SizeF(96f, 96f);
-            ClientSize = new Size(420, 712);
 
-            BuildLayout();
+            BuildLayout(0);
             RefreshFromSettings();
+        }
+
+        private int DetectCurrentDpi()
+        {
+            try
+            {
+                if (!IsHandleCreated) CreateHandle();
+                using (Graphics g = CreateGraphics())
+                {
+                    if (g.DpiY >= 72f) return (int)Math.Round(g.DpiY);
+                }
+            }
+            catch
+            {
+            }
+            return (int)NativeMethods.GetMonitorDpi(0, 0);
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            int liveDpi = DetectCurrentDpi();
+            if (Math.Abs(liveDpi - _builtDpi) >= 4)
+            {
+                RebuildLayout(liveDpi);
+            }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == (int)NativeMethods.WM_DPICHANGED && IsHandleCreated && !IsDisposed)
+            {
+                int newDpi = m.WParam.ToInt32() & 0xFFFF;
+                if (newDpi >= 72 && Math.Abs(newDpi - _builtDpi) >= 4)
+                {
+                    RebuildLayout(newDpi);
+                }
+            }
+        }
+
+        private void RebuildLayout(int dpiHint)
+        {
+            bool prevUpdating = _updatingUi;
+            _updatingUi = true;
+            SuspendLayout();
+            try
+            {
+                Control[] old = new Control[Controls.Count];
+                Controls.CopyTo(old, 0);
+                Controls.Clear();
+                for (int i = 0; i < old.Length; i++)
+                {
+                    old[i].Dispose();
+                }
+                DisposeOwnedFonts();
+
+                BuildLayout(dpiHint);
+                RefreshFromSettings();
+                SetUpdateUiState(_lastUpdateBtnText, _lastUpdateHighlight, _lastUpdateBusy);
+            }
+            finally
+            {
+                ResumeLayout(true);
+                _updatingUi = prevUpdating;
+            }
+            Invalidate();
+        }
+
+        private void DisposeOwnedFonts()
+        {
+            for (int i = 0; i < _ownedFonts.Count; i++)
+            {
+                try { _ownedFonts[i].Dispose(); }
+                catch { }
+            }
+            _ownedFonts.Clear();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                DisposeOwnedFonts();
+            }
+            base.Dispose(disposing);
+        }
+
+        private Font TrackFont(Font f)
+        {
+            _ownedFonts.Add(f);
+            return f;
+        }
+
+        private static Size MeasureSingleLine(Graphics g, string text, Font font)
+        {
+            if (string.IsNullOrEmpty(text)) return new Size(0, TextRenderer.MeasureText(g, "Ay", font).Height);
+            return TextRenderer.MeasureText(
+                g,
+                text,
+                font,
+                new Size(int.MaxValue, int.MaxValue),
+                TextFormatFlags.SingleLine | TextFormatFlags.NoClipping);
         }
 
         public void ForceClose()
@@ -333,9 +441,10 @@ namespace NeonHorizonWallpaper
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
+            int topH = Math.Max(3, (int)Math.Round(3.0 * _builtDpi / 96.0));
             using (LinearGradientBrush topBar = new LinearGradientBrush(
                 new Point(0, 0),
-                new Point(ClientSize.Width, 0),
+                new Point(Math.Max(1, ClientSize.Width), 0),
                 ColMagenta,
                 ColCyan))
             {
@@ -343,283 +452,422 @@ namespace NeonHorizonWallpaper
                 cb.Colors = new Color[] { ColMagenta, ColViolet, ColCyan };
                 cb.Positions = new float[] { 0.0f, 0.5f, 1.0f };
                 topBar.InterpolationColors = cb;
-                e.Graphics.FillRectangle(topBar, 0, 0, ClientSize.Width, 3);
+                e.Graphics.FillRectangle(topBar, 0, 0, ClientSize.Width, topH);
             }
         }
 
-        private void BuildLayout()
+        private void BuildLayout(int dpiHint)
         {
-            int margin = 18;
-            int contentW = ClientSize.Width - margin * 2;
-            int y = 16;
+            if (!IsHandleCreated) CreateHandle();
+            int dpi = dpiHint >= 72 ? dpiHint : DetectCurrentDpi();
+            _builtDpi = dpi;
 
-            // Header
-            Label title = new Label();
-            title.Text = "NEON HORIZON";
-            title.Font = new Font("Segoe UI", 12.5f, FontStyle.Bold);
-            title.ForeColor = ColCyan;
-            title.AutoSize = true;
-            title.Location = new Point(margin, y);
-            Controls.Add(title);
+            // Reset base Font in Points so Windows renders cleanly at the active monitor DPI and OS Text Scale
+            Font bodyFont = TrackFont(new Font("Segoe UI", 9.0f, FontStyle.Regular));
+            Font = bodyFont;
 
-            Label sub = new Label();
-            sub.Text = "Live Synthwave & CRT/VHS Wallpaper";
-            sub.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
-            sub.ForeColor = ColTextMuted;
-            sub.AutoSize = true;
-            sub.Location = new Point(margin, y + 23);
-            Controls.Add(sub);
-
-            _toggleShader = new NeonToggle();
-            _toggleShader.Location = new Point(ClientSize.Width - margin - _toggleShader.Width, y + 8);
-            _toggleShader.CheckedChanged += delegate
+            using (Graphics g = CreateGraphics())
             {
-                if (_updatingUi) return;
-                AppSettings s = _getSettings().Clone();
-                s.Enabled = _toggleShader.Checked;
-                _applySettings(s, true);
-                RefreshFromSettings();
-            };
-            Controls.Add(_toggleShader);
+                Size sampleBody = MeasureSingleLine(g, "Ay", bodyFont);
+                float dpiScale = Math.Max(1.0f, dpi / 96.0f);
+                float textScale = Math.Max(1.0f, sampleBody.Height / 15.0f);
+                float uiScale = Math.Max(dpiScale, textScale);
 
-            y += 50;
+                Func<float, int> S = delegate(float v96) { return Math.Max(1, (int)Math.Round(v96 * uiScale)); };
 
-            // Scene / Animation selector row
-            int sceneCount = AppSettings.Scenes.Length;
-            _sceneBtns = new Button[sceneCount];
-            int sGap = sceneCount > 2 ? 6 : 8;
-            int sBtnW = (contentW - sGap * (sceneCount - 1)) / sceneCount;
-            for (int i = 0; i < sceneCount; i++)
-            {
-                SceneDefinition sd = AppSettings.Scenes[i];
-                Button sBtn = new Button();
-                sBtn.Text = sd.DisplayName;
-                sBtn.FlatStyle = FlatStyle.Flat;
-                sBtn.FlatAppearance.BorderSize = 1;
-                sBtn.FlatAppearance.BorderColor = Color.FromArgb(120, ColViolet);
-                sBtn.BackColor = ColBgCard;
-                sBtn.ForeColor = ColTextMuted;
-                sBtn.Font = new Font("Segoe UI", sceneCount > 2 ? 8.25f : 9.0f, FontStyle.Bold);
-                sBtn.Cursor = Cursors.Hand;
-                sBtn.Bounds = new Rectangle(margin + i * (sBtnW + sGap), y, sBtnW, 30);
-                sBtn.Tag = sd.Id;
-                sBtn.Click += delegate(object sender, EventArgs ev)
+                Font titleFont = TrackFont(new Font("Segoe UI", 12.5f, FontStyle.Bold));
+                Font subFont = TrackFont(new Font("Segoe UI", 8.5f, FontStyle.Regular));
+                Font smallBoldFont = TrackFont(new Font("Segoe UI", 8.5f, FontStyle.Bold));
+                Font boldFont = TrackFont(new Font("Segoe UI", 9.0f, FontStyle.Bold));
+                Font monoFont = TrackFont(new Font("Consolas", 8.0f, FontStyle.Regular));
+                Font monoBoldFont = TrackFont(new Font("Consolas", 8.5f, FontStyle.Bold));
+                int sceneCount = AppSettings.Scenes.Length;
+                Font sceneFont = TrackFont(new Font("Segoe UI", sceneCount > 2 ? 8.25f : 9.0f, FontStyle.Bold));
+
+                int margin = S(16);
+                int cardPadX = S(12);
+                int cardPadY = S(8);
+                int rowGap = S(5);
+                int cardGap = S(8);
+                int btnPadX = S(22);
+                int btnPadY = S(10);
+
+                // Measure all widgets upfront so container width and height fit EVERY DPI and Text Scale automatically
+                Size titleSz = MeasureSingleLine(g, "NEON HORIZON", titleFont);
+                Size subSz = MeasureSingleLine(g, "Live Synthwave & CRT/VHS Wallpaper", subFont);
+                Size toggleSz = new Size(S(46), S(24));
+
+                int maxSceneW = 0;
+                for (int i = 0; i < sceneCount; i++)
                 {
-                    Button clicked = sender as Button;
-                    if (clicked == null) return;
+                    maxSceneW = Math.Max(maxSceneW, MeasureSingleLine(g, AppSettings.Scenes[i].DisplayName, sceneFont).Width + btnPadX);
+                }
+                int sGap = sceneCount > 2 ? S(6) : S(8);
+                int sceneRowMinW = maxSceneW * sceneCount + sGap * Math.Max(0, sceneCount - 1);
+
+                int maxPresetW = 0;
+                for (int i = 0; i < _presetIds.Length; i++)
+                {
+                    maxPresetW = Math.Max(maxPresetW, MeasureSingleLine(g, AppSettings.Presets[i].DisplayName, smallBoldFont).Width + btnPadX);
+                }
+                int pGap = S(6);
+                int presetRowMinW = maxPresetW * _presetIds.Length + pGap * (_presetIds.Length - 1);
+
+                CheckBox chkBgTmp = CreateStyledCheckbox("Live background (grid flight & twinkling stars)", 0, 0);
+                chkBgTmp.Font = bodyFont;
+                CheckBox chkScanTmp = CreateStyledCheckbox("Scan animation (interlace, sweep bar & tape noise)", 0, 0);
+                chkScanTmp.Font = bodyFont;
+                CheckBox chkPauseTmp = CreateStyledCheckbox("Auto-pause when fullscreen apps or games run", 0, 0);
+                chkPauseTmp.Font = bodyFont;
+                CheckBox chkStartTmp = CreateStyledCheckbox("Start automatically with Windows", 0, 0);
+                chkStartTmp.Font = bodyFont;
+                CheckBox chkUpdTmp = CreateStyledCheckbox("Auto-check for updates", 0, 0);
+                chkUpdTmp.Font = bodyFont;
+
+                int chkAnimMaxW = Math.Max(chkBgTmp.GetPreferredSize(Size.Empty).Width, chkScanTmp.GetPreferredSize(Size.Empty).Width);
+                int chkPerfMaxW = Math.Max(chkPauseTmp.GetPreferredSize(Size.Empty).Width, chkStartTmp.GetPreferredSize(Size.Empty).Width);
+                int chkUpdW = chkUpdTmp.GetPreferredSize(Size.Empty).Width;
+
+                string verStr = "v" + UpdateManager.GetCurrentVersion().Normalized;
+                int lblFpsW = MeasureSingleLine(g, "FPS limit:", bodyFont).Width;
+                int cmbMinW = Math.Max(S(124), MeasureSingleLine(g, "Monitor VSync", bodyFont).Width + S(32));
+                int btnPauseW = Math.Max(S(80), MeasureSingleLine(g, "Resume", smallBoldFont).Width + btnPadX);
+                int btnUpdateW = Math.Max(
+                    S(104),
+                    Math.Max(
+                        MeasureSingleLine(g, "Updates", smallBoldFont).Width,
+                        Math.Max(MeasureSingleLine(g, "Update v10.0.0", smallBoldFont).Width, MeasureSingleLine(g, "Checking...", smallBoldFont).Width)) + btnPadX);
+                int verW = MeasureSingleLine(g, verStr, monoFont).Width + S(6);
+
+                int perfRow1W = lblFpsW + S(10) + cmbMinW + S(16) + btnPauseW + cardPadX * 2;
+                int perfRow4W = chkUpdW + S(14) + verW + S(10) + btnUpdateW + cardPadX * 2;
+
+                int btnPreviewW = Math.Max(S(126), MeasureSingleLine(g, "Preview Window", smallBoldFont).Width + btnPadX);
+                int btnResetW = Math.Max(S(88), MeasureSingleLine(g, "Reset", smallBoldFont).Width + btnPadX);
+                int btnHideW = Math.Max(S(110), MeasureSingleLine(g, "Hide to Tray", boldFont).Width + btnPadX);
+                int bottomBtnGap = S(8);
+                int bottomRowMinW = btnPreviewW + btnResetW + btnHideW + bottomBtnGap * 2;
+
+                int statusMinW = MeasureSingleLine(g, "Miami Sunset Drive | RaisedDesktop24H2 (DComp) | 1920x1200", monoFont).Width;
+
+                int contentW = Math.Max(S(384), Math.Max(titleSz.Width, subSz.Width) + S(20) + toggleSz.Width);
+                contentW = Math.Max(contentW, Math.Max(sceneRowMinW, presetRowMinW));
+                contentW = Math.Max(contentW, Math.Max(chkAnimMaxW, chkPerfMaxW) + cardPadX * 2);
+                contentW = Math.Max(contentW, Math.Max(perfRow1W, perfRow4W));
+                contentW = Math.Max(contentW, bottomRowMinW);
+                contentW = Math.Max(contentW, statusMinW);
+
+                int y = S(16);
+
+                // Header
+                Label title = new Label();
+                title.Text = "NEON HORIZON";
+                title.Font = titleFont;
+                title.ForeColor = ColCyan;
+                title.AutoSize = true;
+                title.Location = new Point(margin, y);
+                Controls.Add(title);
+
+                Label sub = new Label();
+                sub.Text = "Live Synthwave & CRT/VHS Wallpaper";
+                sub.Font = subFont;
+                sub.ForeColor = ColTextMuted;
+                sub.AutoSize = true;
+                sub.Location = new Point(margin, y + titleSz.Height + S(2));
+                Controls.Add(sub);
+
+                int headerH = Math.Max(titleSz.Height + S(2) + subSz.Height, toggleSz.Height);
+                _toggleShader = new NeonToggle();
+                _toggleShader.Size = toggleSz;
+                _toggleShader.Location = new Point(margin + contentW - toggleSz.Width, y + (headerH - toggleSz.Height) / 2);
+                _toggleShader.CheckedChanged += delegate
+                {
+                    if (_updatingUi) return;
                     AppSettings s = _getSettings().Clone();
-                    s.Scene = (string)clicked.Tag;
+                    s.Enabled = _toggleShader.Checked;
                     _applySettings(s, true);
                     RefreshFromSettings();
                 };
-                _sceneBtns[i] = sBtn;
-                Controls.Add(sBtn);
-            }
+                Controls.Add(_toggleShader);
 
-            y += 38;
+                y += headerH + S(12);
 
-            // Presets grid
-            _presetBtns = new Button[_presetIds.Length];
-            int gap = 6;
-            int btnW = (contentW - gap * 3) / 4;
-            for (int i = 0; i < _presetIds.Length; i++)
-            {
-                string pid = _presetIds[i];
-                Button btn = new Button();
-                btn.Text = AppSettings.Presets[i].DisplayName;
-                btn.FlatStyle = FlatStyle.Flat;
-                btn.FlatAppearance.BorderSize = 1;
-                btn.FlatAppearance.BorderColor = Color.FromArgb(120, ColViolet);
-                btn.BackColor = ColBgCard;
-                btn.ForeColor = ColTextMuted;
-                btn.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
-                btn.Cursor = Cursors.Hand;
-                btn.Bounds = new Rectangle(margin + i * (btnW + gap), y, btnW, 29);
-                btn.Tag = pid;
-                btn.Click += delegate(object sender, EventArgs ev)
+                // Scene / Animation selector row
+                int sceneBtnH = Math.Max(S(30), MeasureSingleLine(g, "Ay", sceneFont).Height + btnPadY);
+                _sceneBtns = new Button[sceneCount];
+                int sBtnW = (contentW - sGap * (sceneCount - 1)) / sceneCount;
+                for (int i = 0; i < sceneCount; i++)
                 {
-                    Button clicked = sender as Button;
-                    if (clicked == null) return;
-                    AppSettings s = _getSettings().Clone();
-                    if (s.ApplyPreset((string)clicked.Tag))
+                    SceneDefinition sd = AppSettings.Scenes[i];
+                    int curW = (i == sceneCount - 1) ? (contentW - i * (sBtnW + sGap)) : sBtnW;
+                    Button sBtn = CreateActionButton(sd.DisplayName, ColBgCard, ColTextMuted, margin + i * (sBtnW + sGap), y, curW, sceneBtnH, sceneFont);
+                    sBtn.FlatAppearance.BorderColor = Color.FromArgb(120, ColViolet);
+                    sBtn.Tag = sd.Id;
+                    sBtn.Click += delegate(object sender, EventArgs ev)
                     {
+                        Button clicked = sender as Button;
+                        if (clicked == null) return;
+                        AppSettings s = _getSettings().Clone();
+                        s.Scene = (string)clicked.Tag;
                         _applySettings(s, true);
                         RefreshFromSettings();
-                    }
+                    };
+                    _sceneBtns[i] = sBtn;
+                    Controls.Add(sBtn);
+                }
+
+                y += sceneBtnH + S(8);
+
+                // Presets grid
+                int presetBtnH = Math.Max(S(29), MeasureSingleLine(g, "Ay", smallBoldFont).Height + btnPadY);
+                _presetBtns = new Button[_presetIds.Length];
+                int pBtnW = (contentW - pGap * (_presetIds.Length - 1)) / _presetIds.Length;
+                for (int i = 0; i < _presetIds.Length; i++)
+                {
+                    string pid = _presetIds[i];
+                    int curW = (i == _presetIds.Length - 1) ? (contentW - i * (pBtnW + pGap)) : pBtnW;
+                    Button btn = CreateActionButton(AppSettings.Presets[i].DisplayName, ColBgCard, ColTextMuted, margin + i * (pBtnW + pGap), y, curW, presetBtnH, smallBoldFont);
+                    btn.FlatAppearance.BorderColor = Color.FromArgb(120, ColViolet);
+                    btn.Tag = pid;
+                    btn.Click += delegate(object sender, EventArgs ev)
+                    {
+                        Button clicked = sender as Button;
+                        if (clicked == null) return;
+                        AppSettings s = _getSettings().Clone();
+                        if (s.ApplyPreset((string)clicked.Tag))
+                        {
+                            _applySettings(s, true);
+                            RefreshFromSettings();
+                        }
+                    };
+                    _presetBtns[i] = btn;
+                    Controls.Add(btn);
+                }
+
+                y += presetBtnH + S(10);
+
+                // Animation checkboxes card
+                Panel animCard = CreateCardPanel(margin, y, contentW, 10);
+                int ay = S(8);
+                _chkAnimateBg = chkBgTmp;
+                _chkAnimateBg.Location = new Point(cardPadX, ay);
+                _chkAnimateBg.CheckedChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    AppSettings s = _getSettings().Clone();
+                    s.AnimateBg = _chkAnimateBg.Checked;
+                    _applySettings(s, true);
                 };
-                _presetBtns[i] = btn;
-                Controls.Add(btn);
+                animCard.Controls.Add(_chkAnimateBg);
+                ay += _chkAnimateBg.GetPreferredSize(Size.Empty).Height + S(4);
+
+                _chkAnimateScan = chkScanTmp;
+                _chkAnimateScan.Location = new Point(cardPadX, ay);
+                _chkAnimateScan.CheckedChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    AppSettings s = _getSettings().Clone();
+                    s.Animate = _chkAnimateScan.Checked;
+                    s.Preset = "custom";
+                    _applySettings(s, true);
+                    RefreshPresetButtons(s.Preset);
+                };
+                animCard.Controls.Add(_chkAnimateScan);
+                ay += _chkAnimateScan.GetPreferredSize(Size.Empty).Height + S(8);
+                animCard.Height = ay;
+                Controls.Add(animCard);
+
+                y += animCard.Height + cardGap;
+
+                // CRT / VHS Sliders Card
+                Panel sliderCard = CreateCardPanel(margin, y, contentW, 10);
+                int sy = cardPadY;
+                _sldCurvature = AddSliderRow(sliderCard, g, "Screen curvature (CRT)", 0, 100, subFont, monoBoldFont, cardPadX, S, ref sy, out _valCurvature, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.Curvature = v; s.Preset = "custom"; }, commit);
+                });
+                _sldScanlines = AddSliderRow(sliderCard, g, "Interlaced scanlines", 0, 100, subFont, monoBoldFont, cardPadX, S, ref sy, out _valScanlines, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.Scanlines = v; s.Preset = "custom"; }, commit);
+                });
+                _sldBloom = AddSliderRow(sliderCard, g, "Phosphor bloom glow", 0, 100, subFont, monoBoldFont, cardPadX, S, ref sy, out _valBloom, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.Bloom = v; s.Preset = "custom"; }, commit);
+                });
+                _sldVhs = AddSliderRow(sliderCard, g, "VHS tape & chromaticity", 0, 100, subFont, monoBoldFont, cardPadX, S, ref sy, out _valVhs, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.Vhs = v; s.Preset = "custom"; }, commit);
+                });
+                _sldSweep = AddSliderRow(sliderCard, g, "Scan sweep bar", 0, 100, subFont, monoBoldFont, cardPadX, S, ref sy, out _valSweep, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.Sweep = v; s.Preset = "custom"; }, commit);
+                });
+                _sldVignette = AddSliderRow(sliderCard, g, "Glass & vignette", 0, 100, subFont, monoBoldFont, cardPadX, S, ref sy, out _valVignette, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.Vignette = v; s.Preset = "custom"; }, commit);
+                });
+                _sldGridSpeed = AddSliderRow(sliderCard, g, "Grid flight speed", 25, 250, subFont, monoBoldFont, cardPadX, S, ref sy, out _valGridSpeed, delegate(int v, bool commit)
+                {
+                    PatchSetting(delegate(AppSettings s) { s.GridSpeed = v; }, commit);
+                });
+                sliderCard.Height = sy + S(2);
+                Controls.Add(sliderCard);
+
+                y += sliderCard.Height + cardGap;
+
+                // Desktop, Performance & Updates Card (height dynamically matches all rows + button height)
+                Panel perfCard = CreateCardPanel(margin, y, contentW, 10);
+                int smallBtnH = Math.Max(S(27), MeasureSingleLine(g, "Updates", smallBoldFont).Height + btnPadY);
+                int py = cardPadY;
+
+                _cmbFps = new ComboBox();
+                _cmbFps.DropDownStyle = ComboBoxStyle.DropDownList;
+                _cmbFps.BackColor = ColBgElev;
+                _cmbFps.ForeColor = ColTextMain;
+                _cmbFps.FlatStyle = FlatStyle.Flat;
+                _cmbFps.Font = bodyFont;
+                _cmbFps.Items.AddRange(new object[] { "30 FPS", "60 FPS", "120 FPS", "Monitor VSync" });
+                _cmbFps.Width = cmbMinW;
+                int cmbH = _cmbFps.PreferredHeight;
+
+                int fpsRowH = Math.Max(smallBtnH, Math.Max(cmbH, MeasureSingleLine(g, "FPS limit:", bodyFont).Height));
+                Label lblFps = new Label();
+                lblFps.Text = "FPS limit:";
+                lblFps.ForeColor = ColTextMuted;
+                lblFps.Font = bodyFont;
+                lblFps.AutoSize = true;
+                int lblFpsH = MeasureSingleLine(g, "FPS limit:", bodyFont).Height;
+                lblFps.Location = new Point(cardPadX, py + (fpsRowH - lblFpsH) / 2);
+                perfCard.Controls.Add(lblFps);
+
+                _cmbFps.Location = new Point(cardPadX + lblFpsW + S(10), py + (fpsRowH - cmbH) / 2);
+                _cmbFps.SelectedIndexChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    int fps = 30;
+                    if (_cmbFps.SelectedIndex == 0) fps = 30;
+                    else if (_cmbFps.SelectedIndex == 1) fps = 60;
+                    else if (_cmbFps.SelectedIndex == 2) fps = 120;
+                    else if (_cmbFps.SelectedIndex == 3) fps = 0;
+                    PatchSetting(delegate(AppSettings s) { s.TargetFps = fps; }, true);
+                };
+                perfCard.Controls.Add(_cmbFps);
+
+                _btnPause = CreateActionButton("Pause", ColBgElev, ColCyan, contentW - cardPadX - btnPauseW, py + (fpsRowH - smallBtnH) / 2, btnPauseW, smallBtnH, smallBoldFont);
+                _btnPause.Click += delegate
+                {
+                    _togglePause();
+                    RefreshStatus();
+                };
+                perfCard.Controls.Add(_btnPause);
+
+                py += fpsRowH + S(8);
+
+                _chkPauseFs = chkPauseTmp;
+                _chkPauseFs.Location = new Point(cardPadX, py);
+                _chkPauseFs.CheckedChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    PatchSetting(delegate(AppSettings s) { s.PauseOnFullscreen = _chkPauseFs.Checked; }, true);
+                };
+                perfCard.Controls.Add(_chkPauseFs);
+                py += _chkPauseFs.GetPreferredSize(Size.Empty).Height + S(4);
+
+                _chkStartup = chkStartTmp;
+                _chkStartup.Location = new Point(cardPadX, py);
+                _chkStartup.CheckedChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    StartupManager.SetEnabled(_chkStartup.Checked, Application.ExecutablePath);
+                };
+                perfCard.Controls.Add(_chkStartup);
+                py += _chkStartup.GetPreferredSize(Size.Empty).Height + S(6);
+
+                int chkUpdH = chkUpdTmp.GetPreferredSize(Size.Empty).Height;
+                int updRowH = Math.Max(smallBtnH, chkUpdH);
+
+                _chkAutoUpdate = chkUpdTmp;
+                _chkAutoUpdate.Location = new Point(cardPadX, py + (updRowH - chkUpdH) / 2);
+                _chkAutoUpdate.CheckedChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    PatchSetting(delegate(AppSettings s) { s.AutoCheckUpdates = _chkAutoUpdate.Checked; }, true);
+                };
+                perfCard.Controls.Add(_chkAutoUpdate);
+
+                _btnCheckUpdate = CreateActionButton("Updates", ColBgElev, ColCyan, contentW - cardPadX - btnUpdateW, py + (updRowH - smallBtnH) / 2, btnUpdateW, smallBtnH, smallBoldFont);
+                _btnCheckUpdate.Click += delegate
+                {
+                    if (_triggerUpdateAction != null) _triggerUpdateAction();
+                };
+                perfCard.Controls.Add(_btnCheckUpdate);
+
+                _lblVersion = new Label();
+                _lblVersion.Text = verStr;
+                _lblVersion.ForeColor = ColTextMuted;
+                _lblVersion.Font = monoFont;
+                _lblVersion.TextAlign = ContentAlignment.MiddleRight;
+                int lblVerH = Math.Max(S(20), MeasureSingleLine(g, verStr, monoFont).Height + S(2));
+                _lblVersion.Bounds = new Rectangle(_btnCheckUpdate.Left - S(8) - verW, py + (updRowH - lblVerH) / 2, verW, lblVerH);
+                perfCard.Controls.Add(_lblVersion);
+
+                py += updRowH + cardPadY;
+                perfCard.Height = py;
+                Controls.Add(perfCard);
+
+                y += perfCard.Height + cardGap;
+
+                // Bottom action buttons (sized from measured text so Preview Window & Hide to Tray never wrap onto 2 lines)
+                int actionBtnH = Math.Max(S(30), MeasureSingleLine(g, "Preview Window", boldFont).Height + btnPadY);
+                Button btnPreview = CreateActionButton("Preview Window", ColBgElev, ColCyan, margin, y, btnPreviewW, actionBtnH, smallBoldFont);
+                btnPreview.Click += delegate { _openPreview(); };
+                Controls.Add(btnPreview);
+
+                Button btnReset = CreateActionButton("Reset", Color.FromArgb(40, 18, 66), ColMagenta, btnPreview.Right + bottomBtnGap, y, btnResetW, actionBtnH, smallBoldFont);
+                btnReset.Click += delegate
+                {
+                    _resetSettings();
+                    RefreshFromSettings();
+                };
+                Controls.Add(btnReset);
+
+                Button btnHide = CreateActionButton("Hide to Tray", Color.FromArgb(0, 195, 220), ColBgDeep, margin + contentW - btnHideW, y, btnHideW, actionBtnH, boldFont);
+                btnHide.Click += delegate { Hide(); };
+                Controls.Add(btnHide);
+
+                y += actionBtnH + S(8);
+
+                _lblStatus = new Label();
+                _lblStatus.ForeColor = ColTextMuted;
+                _lblStatus.Font = monoFont;
+                _lblStatus.AutoEllipsis = true;
+                int statusH = Math.Max(S(20), MeasureSingleLine(g, "Ay", monoFont).Height + S(4));
+                _lblStatus.Bounds = new Rectangle(margin, y, contentW, statusH);
+                Controls.Add(_lblStatus);
+
+                int reqW = contentW + margin * 2;
+                int reqH = _lblStatus.Bottom + margin;
+
+                Rectangle work = Screen.FromControl(this) != null
+                    ? Screen.FromControl(this).WorkingArea
+                    : (Screen.PrimaryScreen != null ? Screen.PrimaryScreen.WorkingArea : new Rectangle(0, 0, 1280, 800));
+                int maxW = Math.Max(320, work.Width - 24);
+                int maxH = Math.Max(240, work.Height - 40);
+
+                if (reqH > maxH || reqW > maxW)
+                {
+                    AutoScroll = true;
+                    AutoScrollMinSize = new Size(reqW, reqH);
+                    int cw = Math.Min(maxW, reqW + (reqH > maxH ? SystemInformation.VerticalScrollBarWidth : 0));
+                    int ch = Math.Min(maxH, reqH);
+                    ClientSize = new Size(cw, ch);
+                }
+                else
+                {
+                    AutoScroll = false;
+                    ClientSize = new Size(reqW, reqH);
+                }
             }
-
-            y += 38;
-
-            // Animation checkboxes row
-            Panel animCard = CreateCardPanel(margin, y, contentW, 56);
-            _chkAnimateBg = CreateStyledCheckbox("Live background (grid flight & twinkling stars)", 10, 7);
-            _chkAnimateBg.CheckedChanged += delegate
-            {
-                if (_updatingUi) return;
-                AppSettings s = _getSettings().Clone();
-                s.AnimateBg = _chkAnimateBg.Checked;
-                _applySettings(s, true);
-            };
-            animCard.Controls.Add(_chkAnimateBg);
-
-            _chkAnimateScan = CreateStyledCheckbox("Scan animation (interlace, sweep bar & tape noise)", 10, 30);
-            _chkAnimateScan.CheckedChanged += delegate
-            {
-                if (_updatingUi) return;
-                AppSettings s = _getSettings().Clone();
-                s.Animate = _chkAnimateScan.Checked;
-                s.Preset = "custom";
-                _applySettings(s, true);
-                RefreshPresetButtons(s.Preset);
-            };
-            animCard.Controls.Add(_chkAnimateScan);
-            Controls.Add(animCard);
-
-            y += 66;
-
-            // CRT / VHS Sliders Card
-            Panel sliderCard = CreateCardPanel(margin, y, contentW, 296);
-            int sy = 10;
-            _sldCurvature = AddSliderRow(sliderCard, "Screen curvature (CRT)", 0, 100, ref sy, out _valCurvature, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.Curvature = v; s.Preset = "custom"; }, commit);
-            });
-            _sldScanlines = AddSliderRow(sliderCard, "Interlaced scanlines", 0, 100, ref sy, out _valScanlines, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.Scanlines = v; s.Preset = "custom"; }, commit);
-            });
-            _sldBloom = AddSliderRow(sliderCard, "Phosphor bloom glow", 0, 100, ref sy, out _valBloom, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.Bloom = v; s.Preset = "custom"; }, commit);
-            });
-            _sldVhs = AddSliderRow(sliderCard, "VHS tape & chromaticity", 0, 100, ref sy, out _valVhs, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.Vhs = v; s.Preset = "custom"; }, commit);
-            });
-            _sldSweep = AddSliderRow(sliderCard, "Scan sweep bar", 0, 100, ref sy, out _valSweep, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.Sweep = v; s.Preset = "custom"; }, commit);
-            });
-            _sldVignette = AddSliderRow(sliderCard, "Glass & vignette", 0, 100, ref sy, out _valVignette, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.Vignette = v; s.Preset = "custom"; }, commit);
-            });
-            _sldGridSpeed = AddSliderRow(sliderCard, "Grid flight speed", 25, 250, ref sy, out _valGridSpeed, delegate(int v, bool commit)
-            {
-                PatchSetting(delegate(AppSettings s) { s.GridSpeed = v; }, commit);
-            });
-            Controls.Add(sliderCard);
-
-            y += 306;
-
-            // Desktop & Performance Card
-            Panel perfCard = CreateCardPanel(margin, y, contentW, 114);
-
-            Label lblFps = new Label();
-            lblFps.Text = "FPS limit:";
-            lblFps.ForeColor = ColTextMuted;
-            lblFps.AutoSize = true;
-            lblFps.Location = new Point(10, 12);
-            perfCard.Controls.Add(lblFps);
-
-            _cmbFps = new ComboBox();
-            _cmbFps.DropDownStyle = ComboBoxStyle.DropDownList;
-            _cmbFps.BackColor = ColBgElev;
-            _cmbFps.ForeColor = ColTextMain;
-            _cmbFps.FlatStyle = FlatStyle.Flat;
-            _cmbFps.Items.AddRange(new object[] { "30 FPS", "60 FPS", "120 FPS", "Monitor VSync" });
-            _cmbFps.Bounds = new Rectangle(82, 8, 124, 24);
-            _cmbFps.SelectedIndexChanged += delegate
-            {
-                if (_updatingUi) return;
-                int fps = 30;
-                if (_cmbFps.SelectedIndex == 0) fps = 30;
-                else if (_cmbFps.SelectedIndex == 1) fps = 60;
-                else if (_cmbFps.SelectedIndex == 2) fps = 120;
-                else if (_cmbFps.SelectedIndex == 3) fps = 0;
-                PatchSetting(delegate(AppSettings s) { s.TargetFps = fps; }, true);
-            };
-            perfCard.Controls.Add(_cmbFps);
-
-            _btnPause = CreateActionButton("Pause", ColBgElev, ColCyan, 294, 7, 80, 25);
-            _btnPause.Click += delegate
-            {
-                _togglePause();
-                RefreshStatus();
-            };
-            perfCard.Controls.Add(_btnPause);
-
-            _chkPauseFs = CreateStyledCheckbox("Auto-pause when fullscreen apps or games run", 10, 39);
-            _chkPauseFs.CheckedChanged += delegate
-            {
-                if (_updatingUi) return;
-                PatchSetting(delegate(AppSettings s) { s.PauseOnFullscreen = _chkPauseFs.Checked; }, true);
-            };
-            perfCard.Controls.Add(_chkPauseFs);
-
-            _chkStartup = CreateStyledCheckbox("Start automatically with Windows", 10, 62);
-            _chkStartup.CheckedChanged += delegate
-            {
-                if (_updatingUi) return;
-                StartupManager.SetEnabled(_chkStartup.Checked, Application.ExecutablePath);
-            };
-            perfCard.Controls.Add(_chkStartup);
-
-            _chkAutoUpdate = CreateStyledCheckbox("Auto-check for updates", 10, 86);
-            _chkAutoUpdate.CheckedChanged += delegate
-            {
-                if (_updatingUi) return;
-                PatchSetting(delegate(AppSettings s) { s.AutoCheckUpdates = _chkAutoUpdate.Checked; }, true);
-            };
-            perfCard.Controls.Add(_chkAutoUpdate);
-
-            _lblVersion = new Label();
-            _lblVersion.Text = "v" + UpdateManager.GetCurrentVersion().Normalized;
-            _lblVersion.ForeColor = ColTextMuted;
-            _lblVersion.Font = new Font("Consolas", 8.0f, FontStyle.Regular);
-            _lblVersion.TextAlign = ContentAlignment.MiddleRight;
-            _lblVersion.Bounds = new Rectangle(194, 86, 64, 20);
-            perfCard.Controls.Add(_lblVersion);
-
-            _btnCheckUpdate = CreateActionButton("Updates", ColBgElev, ColCyan, 264, 83, 110, 24);
-            _btnCheckUpdate.Click += delegate
-            {
-                if (_triggerUpdateAction != null) _triggerUpdateAction();
-            };
-            perfCard.Controls.Add(_btnCheckUpdate);
-
-            Controls.Add(perfCard);
-
-            y += 124;
-
-            // Bottom action buttons
-            Button btnPreview = CreateActionButton("Preview Window", ColBgElev, ColCyan, margin, y, 126, 30);
-            btnPreview.Click += delegate { _openPreview(); };
-            Controls.Add(btnPreview);
-
-            Button btnReset = CreateActionButton("Reset", Color.FromArgb(40, 18, 66), ColMagenta, margin + 134, y, 88, 30);
-            btnReset.Click += delegate
-            {
-                _resetSettings();
-                RefreshFromSettings();
-            };
-            Controls.Add(btnReset);
-
-            Button btnHide = CreateActionButton("Hide to Tray", Color.FromArgb(0, 195, 220), ColBgDeep, ClientSize.Width - margin - 110, y, 110, 30);
-            btnHide.Font = new Font("Segoe UI", 9.0f, FontStyle.Bold);
-            btnHide.Click += delegate { Hide(); };
-            Controls.Add(btnHide);
-
-            y += 38;
-
-            _lblStatus = new Label();
-            _lblStatus.ForeColor = ColTextMuted;
-            _lblStatus.Font = new Font("Consolas", 8.0f, FontStyle.Regular);
-            _lblStatus.Bounds = new Rectangle(margin, y, contentW, 20);
-            Controls.Add(_lblStatus);
         }
 
         private Panel CreateCardPanel(int x, int y, int w, int h)
@@ -648,7 +896,7 @@ namespace NeonHorizonWallpaper
             return chk;
         }
 
-        private Button CreateActionButton(string text, Color back, Color fore, int x, int y, int w, int h)
+        private Button CreateActionButton(string text, Color back, Color fore, int x, int y, int w, int h, Font font)
         {
             Button b = new Button();
             b.Text = text;
@@ -657,7 +905,10 @@ namespace NeonHorizonWallpaper
             b.FlatAppearance.BorderColor = Color.FromArgb(120, fore);
             b.BackColor = back;
             b.ForeColor = fore;
-            b.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            b.Font = font;
+            b.TextAlign = ContentAlignment.MiddleCenter;
+            b.Padding = Padding.Empty;
+            b.UseCompatibleTextRendering = false;
             b.Cursor = Cursors.Hand;
             b.Bounds = new Rectangle(x, y, w, h);
             return b;
@@ -665,20 +916,26 @@ namespace NeonHorizonWallpaper
 
         private NeonSlider AddSliderRow(
             Panel parent,
+            Graphics g,
             string title,
             int min,
             int max,
+            Font titleFont,
+            Font valueFont,
+            int padX,
+            Func<float, int> S,
             ref int y,
             out Label readout,
             Action<int, bool> onChange)
         {
-            int padX = 12;
             int w = parent.Width - padX * 2;
+            int lblH = Math.Max(MeasureSingleLine(g, title, titleFont).Height, MeasureSingleLine(g, "250%", valueFont).Height);
+            int valW = Math.Max(S(58), MeasureSingleLine(g, "250%", valueFont).Width + S(8));
 
             Label lbl = new Label();
             lbl.Text = title;
             lbl.ForeColor = ColTextMain;
-            lbl.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+            lbl.Font = titleFont;
             lbl.AutoSize = true;
             lbl.Location = new Point(padX, y);
             parent.Controls.Add(lbl);
@@ -686,16 +943,17 @@ namespace NeonHorizonWallpaper
             Label valLbl = new Label();
             valLbl.Text = "0%";
             valLbl.ForeColor = ColCyan;
-            valLbl.Font = new Font("Consolas", 8.5f, FontStyle.Bold);
+            valLbl.Font = valueFont;
             valLbl.TextAlign = ContentAlignment.TopRight;
-            valLbl.Bounds = new Rectangle(parent.Width - padX - 58, y, 58, 16);
+            valLbl.Bounds = new Rectangle(parent.Width - padX - valW, y, valW, lblH);
             parent.Controls.Add(valLbl);
             readout = valLbl;
 
+            int sliderH = S(18);
             NeonSlider slider = new NeonSlider();
             slider.Minimum = min;
             slider.Maximum = max;
-            slider.Bounds = new Rectangle(padX, y + 16, w, 19);
+            slider.Bounds = new Rectangle(padX, y + lblH + S(1), w, sliderH);
             slider.ValueChanged += delegate
             {
                 valLbl.Text = slider.Value + "%";
@@ -707,7 +965,7 @@ namespace NeonHorizonWallpaper
             };
             parent.Controls.Add(slider);
 
-            y += 40;
+            y += lblH + S(1) + sliderH + S(4);
             return slider;
         }
 
@@ -794,8 +1052,11 @@ namespace NeonHorizonWallpaper
 
         public void SetUpdateUiState(string buttonText, bool highlightAvailable, bool busy)
         {
+            _lastUpdateBtnText = string.IsNullOrEmpty(buttonText) ? "Updates" : buttonText;
+            _lastUpdateHighlight = highlightAvailable;
+            _lastUpdateBusy = busy;
             if (_btnCheckUpdate == null || _btnCheckUpdate.IsDisposed) return;
-            _btnCheckUpdate.Text = string.IsNullOrEmpty(buttonText) ? "Updates" : buttonText;
+            _btnCheckUpdate.Text = _lastUpdateBtnText;
             _btnCheckUpdate.Enabled = !busy;
             if (highlightAvailable)
             {
