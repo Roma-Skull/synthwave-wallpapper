@@ -593,9 +593,15 @@ namespace NeonHorizonWallpaper
                 "updates");
         }
 
-        public static string DownloadAndStageUpdate(UpdateReleaseInfo release, Action<int, string> onStatus, out string errorMessage)
+        public static string DownloadAndStageUpdate(
+            UpdateReleaseInfo release,
+            string currentExePath,
+            Action<int, string> onStatus,
+            out string finalDestPath,
+            out string errorMessage)
         {
             errorMessage = string.Empty;
+            finalDestPath = null;
             if (release == null || release.BinaryAsset == null || string.IsNullOrEmpty(release.BinaryAsset.DownloadUrl))
             {
                 errorMessage = "No compatible Windows executable asset was found in the release.";
@@ -620,16 +626,42 @@ namespace NeonHorizonWallpaper
                     }
                 }
 
-                string stageDir = Path.Combine(GetUpdatesStagingRoot(), "v" + release.Version.Normalized);
-                if (!Directory.Exists(stageDir))
+                string fullCurrentExe = Path.GetFullPath(currentExePath);
+                string exeDir = Path.GetDirectoryName(fullCurrentExe);
+                bool canWriteInExeDir = !string.IsNullOrEmpty(exeDir) && CanWriteTargetExecutable(fullCurrentExe);
+                string downloadDir = canWriteInExeDir
+                    ? exeDir
+                    : Path.Combine(GetUpdatesStagingRoot(), "v" + release.Version.Normalized);
+                if (!Directory.Exists(downloadDir))
                 {
-                    Directory.CreateDirectory(stageDir);
+                    Directory.CreateDirectory(downloadDir);
                 }
 
-                string partPath = Path.Combine(stageDir, "NeonHorizonWallpaper-staged.exe.part");
-                string finalPath = Path.Combine(stageDir, "NeonHorizonWallpaper-staged.exe");
+                string assetFileName = Path.GetFileName(release.BinaryAsset.Name);
+                if (string.IsNullOrEmpty(assetFileName) || !assetFileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    assetFileName = "NeonHorizonWallpaper-windows.exe";
+                }
+
+                // Always place the final new executable in the same folder as the original exe when writable.
+                string targetInOriginalFolder = !string.IsNullOrEmpty(exeDir)
+                    ? Path.Combine(exeDir, assetFileName)
+                    : Path.Combine(downloadDir, assetFileName);
+                finalDestPath = targetInOriginalFolder;
+
+                bool sameFileAsRunning = string.Equals(
+                    Path.GetFullPath(targetInOriginalFolder),
+                    fullCurrentExe,
+                    StringComparison.OrdinalIgnoreCase);
+
+                string stagedExePath = (canWriteInExeDir && !sameFileAsRunning)
+                    ? targetInOriginalFolder
+                    : Path.Combine(downloadDir, assetFileName + ".new.exe");
+
+                string partPath = stagedExePath + ".part";
                 if (File.Exists(partPath)) File.Delete(partPath);
-                if (File.Exists(finalPath)) File.Delete(finalPath);
+                if (!sameFileAsRunning && File.Exists(stagedExePath)) File.Delete(stagedExePath);
+                if (sameFileAsRunning && File.Exists(stagedExePath)) File.Delete(stagedExePath);
 
                 DownloadBinaryFile(release.BinaryAsset.DownloadUrl, partPath, release.BinaryAsset.SizeBytes, delegate(int pct)
                 {
@@ -675,8 +707,8 @@ namespace NeonHorizonWallpaper
                     Logger.Info("Verified SHA-256 for update v" + release.Version.Normalized + ": " + actualSha);
                 }
 
-                File.Move(partPath, finalPath);
-                return finalPath;
+                File.Move(partPath, stagedExePath);
+                return stagedExePath;
             }
             catch (Exception ex)
             {
@@ -702,7 +734,12 @@ namespace NeonHorizonWallpaper
             }
         }
 
-        public static bool LaunchStagedUpdaterAndPrepareExit(string stagedExePath, string currentExePath, bool reopenSettings, out string errorMessage)
+        public static bool LaunchStagedUpdaterAndPrepareExit(
+            string stagedExePath,
+            string oldExePath,
+            string finalDestPath,
+            bool reopenSettings,
+            out string errorMessage)
         {
             errorMessage = string.Empty;
             try
@@ -711,8 +748,8 @@ namespace NeonHorizonWallpaper
                 StringBuilder args = new StringBuilder();
                 args.Append("--apply-update ");
                 args.Append(myPid.ToString(CultureInfo.InvariantCulture));
-                args.Append(' ');
-                args.Append('"').Append(currentExePath).Append('"');
+                args.Append(" \"").Append(oldExePath).Append('"');
+                args.Append(" \"").Append(finalDestPath).Append('"');
                 if (reopenSettings)
                 {
                     args.Append(" --settings");
@@ -722,8 +759,8 @@ namespace NeonHorizonWallpaper
                 psi.FileName = stagedExePath;
                 psi.Arguments = args.ToString();
                 psi.UseShellExecute = true;
-                psi.WorkingDirectory = Path.GetDirectoryName(currentExePath) ?? Environment.CurrentDirectory;
-                if (!CanWriteTargetExecutable(currentExePath))
+                psi.WorkingDirectory = Path.GetDirectoryName(oldExePath) ?? Environment.CurrentDirectory;
+                if (!CanWriteTargetExecutable(oldExePath))
                 {
                     psi.Verb = "runas";
                 }
@@ -738,11 +775,8 @@ namespace NeonHorizonWallpaper
             }
         }
 
-        public static int RunApplyUpdateWorker(int parentPid, string targetExePath, bool reopenSettings)
+        private static bool WaitForParentExitAndDeleteOldExe(int parentPid, string oldExePath)
         {
-            Logger.Info("Updater worker running for PID " + parentPid + " -> " + targetExePath);
-
-            // 1. Wait cleanly for previous process instance to release file handle & Mutex
             DateTime deadline = DateTime.UtcNow.AddSeconds(15);
             while (DateTime.UtcNow < deadline)
             {
@@ -765,84 +799,149 @@ namespace NeonHorizonWallpaper
             }
             Thread.Sleep(250);
 
-            string stagedExe = Assembly.GetExecutingAssembly().Location;
-            string backupPath = targetExePath + ".bak";
-            string tempPath = targetExePath + ".new";
+            if (!File.Exists(oldExePath)) return true;
 
-            Exception lastError = null;
-            bool copied = false;
-            for (int attempt = 0; attempt < 12; attempt++)
+            for (int attempt = 0; attempt < 15; attempt++)
             {
                 try
                 {
-                    File.Copy(stagedExe, tempPath, true);
-                    if (File.Exists(targetExePath))
-                    {
-                        if (File.Exists(backupPath)) File.Delete(backupPath);
-                        File.Move(targetExePath, backupPath);
-                    }
-                    File.Move(tempPath, targetExePath);
-                    copied = true;
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    lastError = ex;
-                    Thread.Sleep(350);
-                }
-            }
-
-            if (!copied)
-            {
-                try
-                {
-                    if (!File.Exists(targetExePath) && File.Exists(backupPath))
-                    {
-                        File.Move(backupPath, targetExePath);
-                    }
-                    if (File.Exists(tempPath)) File.Delete(tempPath);
+                    File.Delete(oldExePath);
+                    return true;
                 }
                 catch
                 {
+                    Thread.Sleep(350);
                 }
-                Logger.Error("Apply update copy failed: " + (lastError != null ? lastError.Message : "unknown error"));
+            }
+            return !File.Exists(oldExePath);
+        }
+
+        public static int RunApplyUpdateWorker(int parentPid, string oldExePath, string finalDestPath, bool reopenSettings)
+        {
+            Logger.Info("Updater worker running for PID " + parentPid + ": old=" + oldExePath + " final=" + finalDestPath);
+
+            string stagedExe = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
+            string fullOld = Path.GetFullPath(oldExePath);
+            string fullFinal = Path.GetFullPath(string.IsNullOrEmpty(finalDestPath) ? oldExePath : finalDestPath);
+
+            // 1. Wait cleanly for previous process instance to exit and delete the old executable
+            if (!WaitForParentExitAndDeleteOldExe(parentPid, fullOld))
+            {
+                Logger.Error("Failed to delete old executable: " + fullOld);
                 return 1;
             }
 
+            // 2. Ensure the new executable resides cleanly at finalDestPath (moving/renaming in place if same filename was used)
+            string cleanupFileArg = null;
+            if (!string.Equals(stagedExe, fullFinal, StringComparison.OrdinalIgnoreCase))
+            {
+                bool placed = false;
+                for (int attempt = 0; attempt < 12; attempt++)
+                {
+                    try
+                    {
+                        if (File.Exists(fullFinal)) File.Delete(fullFinal);
+                        try
+                        {
+                            File.Move(stagedExe, fullFinal);
+                        }
+                        catch
+                        {
+                            File.Copy(stagedExe, fullFinal, true);
+                            cleanupFileArg = stagedExe;
+                        }
+                        placed = true;
+                        break;
+                    }
+                    catch
+                    {
+                        Thread.Sleep(350);
+                    }
+                }
+
+                if (!placed)
+                {
+                    Logger.Error("Failed to place new executable at " + fullFinal);
+                    return 2;
+                }
+            }
+
+            // 3. Keep Windows startup entry aligned with the new executable path if autostart was enabled
             try
             {
-                string args = "--updated " + GetCurrentVersion().Normalized + (reopenSettings ? " --settings" : string.Empty);
+                if (StartupManager.IsEnabled())
+                {
+                    StartupManager.SetEnabled(true, fullFinal);
+                }
+            }
+            catch
+            {
+            }
+
+            // 4. Launch the new executable directly from its home folder
+            try
+            {
+                StringBuilder args = new StringBuilder();
+                args.Append("--updated ").Append(GetCurrentVersion().Normalized);
+                if (reopenSettings)
+                {
+                    args.Append(" --settings");
+                }
+                if (!string.IsNullOrEmpty(cleanupFileArg))
+                {
+                    args.Append(" --cleanup-old \"").Append(cleanupFileArg).Append('"');
+                }
+
                 ProcessStartInfo psi = new ProcessStartInfo();
-                psi.FileName = targetExePath;
-                psi.Arguments = args;
+                psi.FileName = fullFinal;
+                psi.Arguments = args.ToString();
                 psi.UseShellExecute = true;
-                psi.WorkingDirectory = Path.GetDirectoryName(targetExePath) ?? Environment.CurrentDirectory;
+                psi.WorkingDirectory = Path.GetDirectoryName(fullFinal) ?? Environment.CurrentDirectory;
                 Process.Start(psi);
                 return 0;
             }
             catch (Exception ex)
             {
                 Logger.Error("Failed to relaunch updated app: " + ex.Message);
-                return 2;
+                return 3;
             }
         }
 
-        public static void CleanupAfterStartup(string currentExePath)
+        public static void CleanupAfterStartup(string currentExePath, string cleanupOldFile)
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
                     Thread.Sleep(1500);
-                    string bak = currentExePath + ".bak";
-                    string tmp = currentExePath + ".new";
-                    if (File.Exists(bak)) File.Delete(bak);
-                    if (File.Exists(tmp)) File.Delete(tmp);
+                    if (!string.IsNullOrEmpty(cleanupOldFile) && File.Exists(cleanupOldFile))
+                    {
+                        for (int i = 0; i < 6; i++)
+                        {
+                            try
+                            {
+                                File.Delete(cleanupOldFile);
+                                break;
+                            }
+                            catch
+                            {
+                                Thread.Sleep(400);
+                            }
+                        }
+                    }
+
+                    string exeDir = Path.GetDirectoryName(Path.GetFullPath(currentExePath)) ?? string.Empty;
+                    if (Directory.Exists(exeDir))
+                    {
+                        string part = currentExePath + ".part";
+                        string newExe = currentExePath + ".new.exe";
+                        if (File.Exists(part)) try { File.Delete(part); } catch { }
+                        if (File.Exists(newExe)) try { File.Delete(newExe); } catch { }
+                    }
 
                     string updatesRoot = GetUpdatesStagingRoot();
-                    string currentDir = Path.GetDirectoryName(Path.GetFullPath(currentExePath)) ?? string.Empty;
                     if (Directory.Exists(updatesRoot) &&
-                        !currentDir.StartsWith(Path.GetFullPath(updatesRoot), StringComparison.OrdinalIgnoreCase))
+                        !exeDir.StartsWith(Path.GetFullPath(updatesRoot), StringComparison.OrdinalIgnoreCase))
                     {
                         string[] subdirs = Directory.GetDirectories(updatesRoot);
                         for (int i = 0; i < subdirs.Length; i++)

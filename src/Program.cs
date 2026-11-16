@@ -25,8 +25,10 @@ namespace NeonHorizonWallpaper
             bool checkUpdateCli = false;
             bool applyUpdate = false;
             int applyParentPid = 0;
-            string applyTargetExe = null;
+            string applyOldExe = null;
+            string applyFinalExe = null;
             string updatedVersion = null;
+            string cleanupOldFile = null;
             string testRenderPath = null;
             string testSceneId = null;
             int testW = 0;
@@ -44,6 +46,10 @@ namespace NeonHorizonWallpaper
                 {
                     updatedVersion = args[++i];
                 }
+                else if (string.Equals(a, "--cleanup-old", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    cleanupOldFile = args[++i];
+                }
                 else if (string.Equals(a, "--apply-update", StringComparison.OrdinalIgnoreCase) && i + 2 < args.Length)
                 {
                     int pidParsed;
@@ -51,8 +57,12 @@ namespace NeonHorizonWallpaper
                     {
                         applyUpdate = true;
                         applyParentPid = pidParsed;
-                        applyTargetExe = args[i + 2];
+                        applyOldExe = args[i + 2];
                         i += 2;
+                        if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                        {
+                            applyFinalExe = args[++i];
+                        }
                     }
                 }
                 else if (string.Equals(a, "--test-render", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
@@ -76,9 +86,9 @@ namespace NeonHorizonWallpaper
                 }
             }
 
-            if (applyUpdate && !string.IsNullOrEmpty(applyTargetExe))
+            if (applyUpdate && !string.IsNullOrEmpty(applyOldExe))
             {
-                return UpdateManager.RunApplyUpdateWorker(applyParentPid, applyTargetExe, openSettings);
+                return UpdateManager.RunApplyUpdateWorker(applyParentPid, applyOldExe, applyFinalExe ?? applyOldExe, openSettings);
             }
 
             if (!string.IsNullOrEmpty(testRenderPath))
@@ -121,7 +131,7 @@ namespace NeonHorizonWallpaper
                         return 0;
                     }
 
-                    UpdateManager.CleanupAfterStartup(Application.ExecutablePath);
+                    UpdateManager.CleanupAfterStartup(Application.ExecutablePath, cleanupOldFile);
                     return RunApplication(openSettings, openPreview, false, updatedVersion);
                 }
             }

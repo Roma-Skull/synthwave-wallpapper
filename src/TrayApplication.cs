@@ -119,6 +119,7 @@ namespace NeonHorizonWallpaper
         private int _pendingProgressPct;
         private string _pendingProgressText;
         private string _pendingStagedExePath;
+        private string _pendingFinalDestPath;
         private string _pendingStageError;
         private UpdateReleaseInfo _pendingStageRelease;
         private string _updateBtnLabel = "Updates";
@@ -921,8 +922,9 @@ namespace NeonHorizonWallpaper
 
             ThreadPool.QueueUserWorkItem(delegate
             {
+                string finalDest;
                 string err;
-                string staged = UpdateManager.DownloadAndStageUpdate(release, delegate(int pct, string msg)
+                string staged = UpdateManager.DownloadAndStageUpdate(release, Application.ExecutablePath, delegate(int pct, string msg)
                 {
                     lock (_updateSync)
                     {
@@ -930,12 +932,13 @@ namespace NeonHorizonWallpaper
                         _pendingProgressText = msg;
                     }
                     PostUpdateEvent(UpdateEventDownloadProgress);
-                }, out err);
+                }, out finalDest, out err);
 
                 lock (_updateSync)
                 {
                     _pendingStageRelease = release;
                     _pendingStagedExePath = staged;
+                    _pendingFinalDestPath = finalDest;
                     _pendingStageError = err;
                 }
                 PostUpdateEvent(UpdateEventStageDone);
@@ -1085,14 +1088,17 @@ namespace NeonHorizonWallpaper
             else if (eventKind == UpdateEventStageDone)
             {
                 string stagedPath;
+                string finalDestPath;
                 string err;
                 UpdateReleaseInfo rel;
                 lock (_updateSync)
                 {
                     stagedPath = _pendingStagedExePath;
+                    finalDestPath = _pendingFinalDestPath;
                     err = _pendingStageError;
                     rel = _pendingStageRelease;
                     _pendingStagedExePath = null;
+                    _pendingFinalDestPath = null;
                     _pendingStageError = null;
                     _pendingStageRelease = null;
                 }
@@ -1121,7 +1127,7 @@ namespace NeonHorizonWallpaper
 
                 bool reopenSettings = (_settingsForm != null && !_settingsForm.IsDisposed && _settingsForm.Visible);
                 string launchErr;
-                if (!UpdateManager.LaunchStagedUpdaterAndPrepareExit(stagedPath, Application.ExecutablePath, reopenSettings, out launchErr))
+                if (!UpdateManager.LaunchStagedUpdaterAndPrepareExit(stagedPath, Application.ExecutablePath, finalDestPath, reopenSettings, out launchErr))
                 {
                     _updateBtnLabel = _availableUpdate != null ? ("Update v" + _availableUpdate.Version.Normalized) : "Updates";
                     SyncUpdateUi();
