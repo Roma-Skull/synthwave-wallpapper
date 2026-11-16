@@ -13,9 +13,11 @@
 
 ## Скриншоты
 
-| Neon Horizon (`neon_horizon`) | Miami Sunset Drive (`miami_drive`) | Light Cycle (`light_cycle`) |
-| :---: | :---: | :---: |
-| ![Neon Horizon](img/horizon.png) | ![Miami Sunset Drive](img/car.png) | ![Light Cycle](img/bike.png) |
+| Neon Horizon (`neon_horizon`) | Miami Sunset Drive (`miami_drive`) |
+| :---: | :---: |
+| ![Neon Horizon](img/horizon.png) | ![Miami Sunset Drive](img/car.png) |
+| **Light Cycle (`light_cycle`)** | **Outrun Cycle (`outrun_cycle`)** |
+| ![Light Cycle](img/bike.png) | ![Outrun Cycle](img/bike2.png) |
 
 ---
 
@@ -25,6 +27,7 @@
   1. **Neon Horizon (`neon_horizon`):** сумеречное синтвейв-небо с авророй, мерцающие звёзды с 4-лучевыми бликами, закатное Outrun-солнце с дышащей короной и сползающими полосами-срезами, каркасные low-poly горы, бесконечный полёт над перспективой неоновой сетки и яркая линия горизонта.
   2. **Miami Sunset Drive (`miami_drive`):** ретро-спорткар, едущий в закат по 4-полосному проспекту Майами, встречный трафик (легковушки и фуры), неоновый скайлайн Майами в стиле Art Deco, пролетающие за пределы экрана пальмы и уличные фонари.
   3. **Light Cycle (`light_cycle`):** футуристический светоцикл с гонщиком в духе TRON, едущий слева направо по глянцевой трассе на фоне заката Outrun, медленного параллакс-мегаполиса и быстрых пальм.
+  4. **Outrun Cycle (`outrun_cycle`):** светоцикл на фоне звёздного сине-розового неба, золотого солнца с полосами, триангулированных неоново-голубых гор и ярко-розовой перспективной сетки.
 - **Проход постобработки ЭЛТ / VHS (`shaders/crt_vhs.ps.hlsl`):**
   - CRT-бочкообразный изгиб экрана и скруглённая стеклянная рамка с внутренней тенью и фиолетовой подсветкой кромки;
   - чересстрочный сканлайн и 3-субпиксельная RGB-решётка с привязкой к физическому DPI экрана (без муара на разных масштабах);
@@ -51,7 +54,7 @@
    - `NeonHorizonWallpaper.exe --preview-only` — только окно предпросмотра (без встраивания в рабочий стол);
    - `NeonHorizonWallpaper.exe --check-update` — проверить наличие обновления в консоли;
    - `NeonHorizonWallpaper.exe --exit` — корректно завершить работающий экземпляр;
-   - `NeonHorizonWallpaper.exe --test-render frame.png [neon_horizon|miami_drive|light_cycle] [width height]` — отрендерить один кадр выбранной сцены в PNG через GPU для проверки.
+   - `NeonHorizonWallpaper.exe --test-render frame.png [neon_horizon|miami_drive|light_cycle|outrun_cycle] [width height]` — отрендерить один кадр выбранной сцены в PNG через GPU для проверки.
 
 Настройки сохраняются в `AppData\Roaming\NeonHorizonWallpaper\settings.json` (`%APPDATA%\NeonHorizonWallpaper\settings.json`), а локальный диагностический лог пишется в `AppData\Local\NeonHorizonWallpaper\neon_horizon.log` (`%LOCALAPPDATA%\NeonHorizonWallpaper\neon_horizon.log`).
 
@@ -79,7 +82,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File package.ps1 -Version 1.1.0
 Структура проекта:
 - [`VERSION`](VERSION) — базовая версия сборки Windows;
 - [`src/`](src/) — Win32/DesktopHost (24H2 + WorkerW), D3D11/DXGI/DirectComposition рендерер, автообновление (`UpdateManager.cs`), окно настроек и трей;
-- [`shaders/`](shaders/) — HLSL-шейдеры (`fullscreen.vs.hlsl`, `synthwave_scene.ps.hlsl`, `miami_drive.ps.hlsl`, `light_cycle.ps.hlsl`, `crt_vhs.ps.hlsl`);
+- [`shaders/`](shaders/) — HLSL-шейдеры (`fullscreen.vs.hlsl`, `synthwave_scene.ps.hlsl`, `miami_drive.ps.hlsl`, `light_cycle.ps.hlsl`, `outrun_cycle.ps.hlsl`, `crt_vhs.ps.hlsl`);
 - [`img/`](img/) — скриншоты сцен на рабочем столе;
 - [`app.manifest`](app.manifest) — совместимость Windows 8/10/11 и `PerMonitorV2` DPI;
 - [`build.ps1`](build.ps1) — предкомпилятор шейдеров (DXBC), генератор `.ico` и сборщик `NeonHorizonWallpaper.exe`;

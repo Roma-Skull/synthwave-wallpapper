@@ -157,6 +157,12 @@ namespace NeonHorizonWallpaper
                 Id = "light_cycle",
                 DisplayName = "Light Cycle",
                 ShaderFile = "light_cycle.ps.hlsl"
+            },
+            new SceneDefinition
+            {
+                Id = "outrun_cycle",
+                DisplayName = "Outrun Cycle",
+                ShaderFile = "outrun_cycle.ps.hlsl"
             }
         };
 

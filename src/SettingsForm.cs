@@ -248,13 +248,13 @@ namespace NeonHorizonWallpaper
         private CheckBox _chkPauseFs;
         private CheckBox _chkStartup;
         private CheckBox _chkAutoUpdate;
+        private ComboBox _cmbScene;
         private ComboBox _cmbFps;
         private Label _lblStatus;
         private Label _lblVersion;
         private Button _btnPause;
         private Button _btnCheckUpdate;
 
-        private Button[] _sceneBtns;
         private Button[] _presetBtns;
         private readonly string[] _presetIds = new string[] { "soft", "outrun", "vhs", "minimal" };
 
@@ -482,7 +482,6 @@ namespace NeonHorizonWallpaper
                 Font monoFont = TrackFont(new Font("Consolas", 8.0f, FontStyle.Regular));
                 Font monoBoldFont = TrackFont(new Font("Consolas", 8.5f, FontStyle.Bold));
                 int sceneCount = AppSettings.Scenes.Length;
-                Font sceneFont = TrackFont(new Font("Segoe UI", sceneCount > 2 ? 8.25f : 9.0f, FontStyle.Bold));
 
                 int margin = S(16);
                 int cardPadX = S(12);
@@ -497,13 +496,13 @@ namespace NeonHorizonWallpaper
                 Size subSz = MeasureSingleLine(g, "Live Synthwave & CRT/VHS Wallpaper", subFont);
                 Size toggleSz = new Size(S(46), S(24));
 
-                int maxSceneW = 0;
+                int lblSceneW = MeasureSingleLine(g, "Scene:", bodyFont).Width;
+                int maxSceneW = S(160);
                 for (int i = 0; i < sceneCount; i++)
                 {
-                    maxSceneW = Math.Max(maxSceneW, MeasureSingleLine(g, AppSettings.Scenes[i].DisplayName, sceneFont).Width + btnPadX);
+                    maxSceneW = Math.Max(maxSceneW, MeasureSingleLine(g, AppSettings.Scenes[i].DisplayName, boldFont).Width + S(36));
                 }
-                int sGap = sceneCount > 2 ? S(6) : S(8);
-                int sceneRowMinW = maxSceneW * sceneCount + sGap * Math.Max(0, sceneCount - 1);
+                int sceneRowMinW = lblSceneW + S(12) + maxSceneW + cardPadX * 2;
 
                 int maxPresetW = 0;
                 for (int i = 0; i < _presetIds.Length; i++)
@@ -590,33 +589,48 @@ namespace NeonHorizonWallpaper
                 };
                 Controls.Add(_toggleShader);
 
-                y += headerH + S(12);
+                y += headerH + S(10);
 
-                // Scene / Animation selector row
-                int sceneBtnH = Math.Max(S(30), MeasureSingleLine(g, "Ay", sceneFont).Height + btnPadY);
-                _sceneBtns = new Button[sceneCount];
-                int sBtnW = (contentW - sGap * (sceneCount - 1)) / sceneCount;
+                // Scene / Animation selector dropdown card
+                _cmbScene = new ComboBox();
+                _cmbScene.DropDownStyle = ComboBoxStyle.DropDownList;
+                _cmbScene.BackColor = ColBgElev;
+                _cmbScene.ForeColor = ColCyan;
+                _cmbScene.FlatStyle = FlatStyle.Flat;
+                _cmbScene.Font = boldFont;
                 for (int i = 0; i < sceneCount; i++)
                 {
-                    SceneDefinition sd = AppSettings.Scenes[i];
-                    int curW = (i == sceneCount - 1) ? (contentW - i * (sBtnW + sGap)) : sBtnW;
-                    Button sBtn = CreateActionButton(sd.DisplayName, ColBgCard, ColTextMuted, margin + i * (sBtnW + sGap), y, curW, sceneBtnH, sceneFont);
-                    sBtn.FlatAppearance.BorderColor = Color.FromArgb(120, ColViolet);
-                    sBtn.Tag = sd.Id;
-                    sBtn.Click += delegate(object sender, EventArgs ev)
-                    {
-                        Button clicked = sender as Button;
-                        if (clicked == null) return;
-                        AppSettings s = _getSettings().Clone();
-                        s.Scene = (string)clicked.Tag;
-                        _applySettings(s, true);
-                        RefreshFromSettings();
-                    };
-                    _sceneBtns[i] = sBtn;
-                    Controls.Add(sBtn);
+                    _cmbScene.Items.Add(AppSettings.Scenes[i].DisplayName);
                 }
+                int cmbSceneH = _cmbScene.PreferredHeight;
+                int lblSceneH = MeasureSingleLine(g, "Scene:", bodyFont).Height;
+                int sceneRowH = Math.Max(cmbSceneH, lblSceneH);
 
-                y += sceneBtnH + S(8);
+                Panel sceneCard = CreateCardPanel(margin, y, contentW, sceneRowH + cardPadY * 2);
+                Label lblScene = new Label();
+                lblScene.Text = "Scene:";
+                lblScene.ForeColor = ColTextMuted;
+                lblScene.Font = bodyFont;
+                lblScene.AutoSize = true;
+                lblScene.Location = new Point(cardPadX, cardPadY + (sceneRowH - lblSceneH) / 2);
+                sceneCard.Controls.Add(lblScene);
+
+                int cmbSceneX = cardPadX + lblSceneW + S(12);
+                _cmbScene.Bounds = new Rectangle(cmbSceneX, cardPadY + (sceneRowH - cmbSceneH) / 2, contentW - cmbSceneX - cardPadX, cmbSceneH);
+                _cmbScene.SelectedIndexChanged += delegate
+                {
+                    if (_updatingUi) return;
+                    int idx = _cmbScene.SelectedIndex;
+                    if (idx >= 0 && idx < AppSettings.Scenes.Length)
+                    {
+                        PatchSetting(delegate(AppSettings s) { s.Scene = AppSettings.Scenes[idx].Id; }, true);
+                        RefreshStatus();
+                    }
+                };
+                sceneCard.Controls.Add(_cmbScene);
+                Controls.Add(sceneCard);
+
+                y += sceneCard.Height + cardGap;
 
                 // Presets grid
                 int presetBtnH = Math.Max(S(29), MeasureSingleLine(g, "Ay", smallBoldFont).Height + btnPadY);
@@ -1010,7 +1024,7 @@ namespace NeonHorizonWallpaper
                 else if (s.TargetFps == 120) _cmbFps.SelectedIndex = 2;
                 else _cmbFps.SelectedIndex = 3;
 
-                RefreshSceneButtons(s.Scene);
+                RefreshSceneSelection(s.Scene);
                 RefreshPresetButtons(s.Preset);
                 RefreshStatus();
             }
@@ -1020,15 +1034,21 @@ namespace NeonHorizonWallpaper
             }
         }
 
-        private void RefreshSceneButtons(string activeScene)
+        private void RefreshSceneSelection(string activeScene)
         {
-            if (_sceneBtns == null) return;
-            for (int i = 0; i < _sceneBtns.Length; i++)
+            if (_cmbScene == null || _cmbScene.Items.Count == 0) return;
+            int foundIdx = 0;
+            for (int i = 0; i < AppSettings.Scenes.Length; i++)
             {
-                bool active = string.Equals((string)_sceneBtns[i].Tag, activeScene, StringComparison.OrdinalIgnoreCase);
-                _sceneBtns[i].BackColor = active ? Color.FromArgb(20, 48, 86) : ColBgCard;
-                _sceneBtns[i].ForeColor = active ? ColCyan : ColTextMuted;
-                _sceneBtns[i].FlatAppearance.BorderColor = active ? ColCyan : Color.FromArgb(120, ColViolet);
+                if (string.Equals(AppSettings.Scenes[i].Id, activeScene, StringComparison.OrdinalIgnoreCase))
+                {
+                    foundIdx = i;
+                    break;
+                }
+            }
+            if (foundIdx < _cmbScene.Items.Count)
+            {
+                _cmbScene.SelectedIndex = foundIdx;
             }
         }
 
