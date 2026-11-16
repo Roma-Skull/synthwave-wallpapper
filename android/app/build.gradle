@@ -1,0 +1,85 @@
+plugins {
+    id 'com.android.application'
+}
+
+def readAppVersion() {
+    def vFile = file('../VERSION')
+    if (vFile.exists()) {
+        return vFile.text.trim().replaceFirst(/^(?:[a-zA-Z0-9_-]+-)?[vV]/, '')
+    }
+    return '1.0.0'
+}
+
+def computeVersionCode(String ver) {
+    def parts = ver.split('[-+]')[0].split('\\.')
+    int maj = parts.length > 0 && parts[0].isInteger() ? parts[0].toInteger() : 1
+    int min = parts.length > 1 && parts[1].isInteger() ? parts[1].toInteger() : 0
+    int pat = parts.length > 2 && parts[2].isInteger() ? parts[2].toInteger() : 0
+    return maj * 10000 + min * 100 + pat
+}
+
+def appVersionName = readAppVersion()
+def appVersionCode = computeVersionCode(appVersionName)
+
+android {
+    namespace 'com.romaskull.neonhorizon'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.romaskull.neonhorizon'
+        minSdk 24
+        targetSdk 34
+        versionCode appVersionCode
+        versionName appVersionName
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs = ['src/main/assets', '../../common']
+        }
+    }
+
+    signingConfigs {
+        release {
+            def ksPath = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (ksPath != null && file(ksPath).exists()) {
+                storeFile file(ksPath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            } else {
+                initWith signingConfigs.debug
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+}
+
+dependencies {
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core:1.12.0'
+    implementation 'androidx.activity:activity:1.8.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+}
