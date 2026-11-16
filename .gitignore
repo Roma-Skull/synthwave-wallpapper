@@ -1,9 +1,18 @@
-# Build outputs & release packages
+# Build outputs & release packages (Windows)
 dist/
-shaders/bin/
-assets/*.ico
+windows/dist/
+windows/shaders/bin/
+windows/assets/*.ico
 *.exe
 *.zip
+
+# Build outputs & local config (Android)
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+*.apk
+*.aab
 
 # IDE / temp / logs
 *.user

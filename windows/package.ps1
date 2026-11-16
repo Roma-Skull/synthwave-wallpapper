@@ -8,6 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $Root = $PSScriptRoot
+$RepoRoot = Split-Path -Parent $Root
 $VersionFile = Join-Path $Root 'VERSION'
 if ([string]::IsNullOrWhiteSpace($Version)) {
     if (Test-Path $VersionFile) {
@@ -33,7 +34,13 @@ $StageDir = Join-Path $DistDir $PackageName
 New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
 Copy-Item -Path $ExePath -Destination (Join-Path $StageDir 'NeonHorizonWallpaper.exe') -Force
-Copy-Item -Path (Join-Path $Root 'README.md') -Destination (Join-Path $StageDir 'README.md') -Force
+$ReadmePath = Join-Path $Root 'README.md'
+if (-not (Test-Path $ReadmePath)) {
+    $ReadmePath = Join-Path $RepoRoot 'README.md'
+}
+if (Test-Path $ReadmePath) {
+    Copy-Item -Path $ReadmePath -Destination (Join-Path $StageDir 'README.md') -Force
+}
 
 $ZipPath = Join-Path $DistDir "$PackageName.zip"
 Compress-Archive -Path "$StageDir\*" -DestinationPath $ZipPath -CompressionLevel Optimal -Force

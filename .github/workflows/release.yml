@@ -38,14 +38,14 @@ jobs:
       - name: Build and package Windows release
         shell: powershell
         run: |
-          .\package.ps1 -Version "${{ steps.ver.outputs.version }}"
+          .\windows\package.ps1 -Version "${{ steps.ver.outputs.version }}"
 
       - name: Smoke-test offscreen shader renders (WARP/GPU)
         shell: powershell
         run: |
           foreach ($scene in @('neon_horizon', 'miami_drive', 'light_cycle', 'outrun_cycle')) {
             $outPng = Join-Path $env:RUNNER_TEMP "smoke_$scene.png"
-            & .\dist\NeonHorizonWallpaper-windows.exe --test-render $outPng $scene 1280 720 | Out-String
+            & .\windows\dist\NeonHorizonWallpaper-windows.exe --test-render $outPng $scene 1280 720 | Out-String
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outPng)) {
               throw "Smoke render PNG was not created for scene $scene"
             }
@@ -58,10 +58,10 @@ jobs:
         run: |
           $tag = "${{ steps.ver.outputs.tag }}"
           $ver = "${{ steps.ver.outputs.version }}"
-          $zip = "dist/NeonHorizonWallpaper-v$ver-windows.zip"
-          $exe = "dist/NeonHorizonWallpaper-windows.exe"
-          $sha = "dist/checksums-windows-sha256.txt"
-          $man = "dist/manifest-windows.json"
+          $zip = "windows/dist/NeonHorizonWallpaper-v$ver-windows.zip"
+          $exe = "windows/dist/NeonHorizonWallpaper-windows.exe"
+          $sha = "windows/dist/checksums-windows-sha256.txt"
+          $man = "windows/dist/manifest-windows.json"
           $notesPath = Join-Path $env:RUNNER_TEMP 'release_notes.md'
           $lines = @(
             "## Neon Horizon — Windows Live Desktop Wallpaper (v$ver)"

@@ -28,7 +28,7 @@
   2. **Miami Sunset Drive (`miami_drive`):** ретро-спорткар, едущий в закат по 4-полосному проспекту Майами, встречный трафик (легковушки и фуры), неоновый скайлайн Майами в стиле Art Deco, пролетающие за пределы экрана пальмы и уличные фонари.
   3. **Light Cycle (`light_cycle`):** футуристический светоцикл с гонщиком в духе TRON, едущий слева направо по глянцевой трассе на фоне заката Outrun, медленного параллакс-мегаполиса и быстрых пальм.
   4. **Outrun Cycle (`outrun_cycle`):** светоцикл на фоне звёздного сине-розового неба, золотого солнца с полосами, триангулированных неоново-голубых гор и ярко-розовой перспективной сетки.
-- **Проход постобработки ЭЛТ / VHS (`shaders/crt_vhs.ps.hlsl`):**
+- **Проход постобработки ЭЛТ / VHS ([`windows/shaders/crt_vhs.ps.hlsl`](windows/shaders/crt_vhs.ps.hlsl)):**
   - CRT-бочкообразный изгиб экрана и скруглённая стеклянная рамка с внутренней тенью и фиолетовой подсветкой кромки;
   - чересстрочный сканлайн и 3-субпиксельная RGB-решётка с привязкой к физическому DPI экрана (без муара на разных масштабах);
   - оптическое свечение люминофора (**Bloom**);
@@ -45,7 +45,7 @@
 
 ## Быстрый запуск (Windows)
 
-1. Скачайте `NeonHorizonWallpaper-windows.exe` (или `NeonHorizonWallpaper-v*-windows.zip`) со страницы [Releases](https://github.com/Roma-Skull/synthwave-wallpapper/releases), либо соберите локально через `build.ps1`.
+1. Скачайте `NeonHorizonWallpaper-windows.exe` (или `NeonHorizonWallpaper-v*-windows.zip`) со страницы [Releases](https://github.com/Roma-Skull/synthwave-wallpapper/releases), либо соберите локально через [`windows/build.ps1`](windows/build.ps1).
 2. Запустите `NeonHorizonWallpaper.exe` (иконка появится в системном трее рядом с часами).
 3. Двойной клик по иконке в трее (или `Configure CRT / VHS & Scene...`) открывает панель настроек.
 4. Полезные параметры запуска:
@@ -65,8 +65,8 @@
 Внешние SDK не требуются — используется встроенный компилятор .NET Framework 4 (`csc.exe`):
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File package.ps1 -Version 1.1.0
+powershell -NoProfile -ExecutionPolicy Bypass -File windows\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File windows\package.ps1 -Version 1.2.0
 ```
 
 ### Схема разделения релизов по ОС
@@ -80,10 +80,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File package.ps1 -Version 1.1.0
 - **Фильтрация в клиенте автообновления:** клиент запрашивает `/releases`, отбирает только релизы своей платформы (`windows-v*` или общие `v*` с Windows-ассетом), игнорирует чужие ОС (`android-v*` и др.) и проверяет SHA-256 перед заменой.
 
 Структура проекта:
-- [`VERSION`](VERSION) — базовая версия сборки Windows;
-- [`src/`](src/) — Win32/DesktopHost (24H2 + WorkerW), D3D11/DXGI/DirectComposition рендерер, автообновление (`UpdateManager.cs`), окно настроек и трей;
-- [`shaders/`](shaders/) — HLSL-шейдеры (`fullscreen.vs.hlsl`, `synthwave_scene.ps.hlsl`, `miami_drive.ps.hlsl`, `light_cycle.ps.hlsl`, `outrun_cycle.ps.hlsl`, `crt_vhs.ps.hlsl`);
-- [`img/`](img/) — скриншоты сцен на рабочем столе;
-- [`app.manifest`](app.manifest) — совместимость Windows 8/10/11 и `PerMonitorV2` DPI;
-- [`build.ps1`](build.ps1) — предкомпилятор шейдеров (DXBC), генератор `.ico` и сборщик `NeonHorizonWallpaper.exe`;
-- [`package.ps1`](package.ps1) — сборщик дистрибутива в `dist/`.
+- [`windows/`](windows/) — сборка и исходники для Windows:
+  - [`windows/VERSION`](windows/VERSION) — базовая версия сборки Windows;
+  - [`windows/src/`](windows/src/) — Win32/DesktopHost (24H2 + WorkerW), D3D11/DXGI/DirectComposition рендерер, автообновление (`UpdateManager.cs`), окно настроек и трей;
+  - [`windows/shaders/`](windows/shaders/) — HLSL-шейдеры (`fullscreen.vs.hlsl`, `synthwave_scene.ps.hlsl`, `miami_drive.ps.hlsl`, `light_cycle.ps.hlsl`, `outrun_cycle.ps.hlsl`, `crt_vhs.ps.hlsl`);
+  - [`windows/app.manifest`](windows/app.manifest) — совместимость Windows 8/10/11 и `PerMonitorV2` DPI;
+  - [`windows/build.ps1`](windows/build.ps1) — предкомпилятор шейдеров (DXBC), генератор `.ico` и сборщик `NeonHorizonWallpaper.exe`;
+  - [`windows/package.ps1`](windows/package.ps1) — сборщик дистрибутива в `windows/dist/`.
+- [`android/`](android/) — проект под Android (`WallpaperService` + OpenGL ES).
+- [`common/`](common/) — общие материалы, спецификации и ресурсы между платформами.
+- [`img/`](img/) — скриншоты сцен на рабочем столе.
