@@ -1,4 +1,5 @@
 Texture2D sceneTex : register(t0);
+Texture2D bloomTex : register(t1);
 SamplerState linearClamp : register(s0);
 
 cbuffer CrtParams : register(b0) {
@@ -102,25 +103,9 @@ float4 main(PSIn input) : SV_Target {
         baseCol = sampleScene(sampleUv);
     }
 
-    // Phosphor bloom glow from bright highlights (6 staggered taps: 3 inner + 3 outer = ~62% fewer texture fetches)
+    // Phosphor bloom glow from pre-filtered 1/9-scene BloomTexture (1 tap instead of 6 native taps)
     if (uBloom > 0.001) {
-        float2 texel = (2.5 + uBloom * 8.5) / uResolution;
-        static const float2 bloomDirs[6] = {
-            float2( 1.000,  0.000) * 1.15,
-            float2(-0.500,  0.866) * 1.15,
-            float2(-0.500, -0.866) * 1.15,
-            float2( 0.500,  0.866) * 2.35,
-            float2(-1.000,  0.000) * 2.35,
-            float2( 0.500, -0.866) * 2.35
-        };
-        float3 glowAcc = float3(0.0, 0.0, 0.0);
-        [unroll]
-        for (int i = 0; i < 6; i++) {
-            float w = (i < 3) ? 0.65 : 0.35;
-            float3 s = sampleScene(sampleUv + bloomDirs[i] * texel);
-            glowAcc += max(float3(0.0, 0.0, 0.0), s - 0.34) * w;
-        }
-        glowAcc /= 3.0;
+        float3 glowAcc = bloomTex.SampleLevel(linearClamp, clamp(sampleUv, 0.001, 0.999), 0).rgb;
         float3 bloomTint = glowAcc * float3(1.06 + uVhs * 0.14, 1.0, 1.14 + uVhs * 0.16);
         baseCol = 1.0 - (1.0 - baseCol) * (1.0 - clamp(bloomTint * uBloom * 0.72, 0.0, 0.92));
     }

@@ -1,7 +1,12 @@
+Texture2D bgCacheTex : register(t0);
+SamplerState linearClamp : register(s0);
+
 cbuffer SceneParams : register(b0) {
     float2 uResolution;
     float  uTime;
     float  uGridTime;
+    float  uLayerMode;
+    float3 _pad;
 };
 
 struct PSIn {
@@ -551,36 +556,28 @@ float4 main(PSIn input) : SV_Target {
     float2 p = float2((glUv.x - 0.5) * aspect * viewH, (glUv.y - horY) * viewH);
     float2 sunCenter = float2(0.0, 0.145);
 
-    // Fast highway floor coordinates (left-to-right drive => worldX shifts LEFT at speed 1.65)
-    float speedRoad = 1.65;
-    float yFloorRaw = max(0.0, -p.y);
-    float roadDepth = 0.25 / (0.09 + yFloorRaw);
-    float roadX = p.x * roadDepth + uGridTime * speedRoad;
-    float2 roadCoord = float2(roadX * 1.25, roadDepth * 3.2);
-    float2 roadDeriv = max(float2(0.0008, 0.0008), fwidth(roadCoord));
+    if (uLayerMode > 0.5 && uLayerMode < 1.5) {
+        if (p.y < -0.006) return float4(0.0, 0.0, 0.0, 0.0);
 
-    // 1. Deep Synthwave Twilight Sky & Sunset Haze
-    float3 skyTop = float3(0.0431, 0.0275, 0.0941);
-    float3 skyMid = float3(0.098, 0.039, 0.215);
-    float3 skyHor = float3(0.310, 0.062, 0.310);
-    float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
-    float3 col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
-    col = lerp(col, skyTop, ss(0.28, 0.92, tSky));
+        float3 skyTop = float3(0.0431, 0.0275, 0.0941);
+        float3 skyMid = float3(0.098, 0.039, 0.215);
+        float3 skyHor = float3(0.310, 0.062, 0.310);
+        float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+        float3 col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
+        col = lerp(col, skyTop, ss(0.28, 0.92, tSky));
 
-    float aurora = sin(p.x * 2.8 + uTime * 0.22) * cos(p.y * 7.2 - uTime * 0.15);
-    col += float3(0.045, 0.012, 0.075) * max(0.0, aurora) * (1.0 - tSky);
+        float aurora = sin(p.x * 2.8 + uTime * 0.22) * cos(p.y * 7.2 - uTime * 0.15);
+        col += float3(0.045, 0.012, 0.075) * max(0.0, aurora) * (1.0 - tSky);
 
-    // 2. Retro Sliced Outrun Sun + Breathing Corona
-    float2 pSun = p - sunCenter;
-    float sunR = 0.210;
-    float sunDist = length(pSun);
-    float sunBreath = 1.0 + 0.045 * sin(uTime * 1.35);
+        float2 pSun = p - sunCenter;
+        float sunR = 0.210;
+        float sunDist = length(pSun);
+        float sunBreath = 1.0 + 0.045 * sin(uTime * 1.35);
 
-    float corona = exp(-max(0.0, sunDist - sunR) * 8.5) * 0.65 * sunBreath;
-    float wideGlow = exp(-length(pSun * float2(0.75, 1.40)) * 2.6) * 0.44;
-    col += float3(1.0, 0.16, 0.52) * (corona + wideGlow);
+        float corona = exp(-max(0.0, sunDist - sunR) * 8.5) * 0.65 * sunBreath;
+        float wideGlow = exp(-length(pSun * float2(0.75, 1.40)) * 2.6) * 0.44;
+        col += float3(1.0, 0.16, 0.52) * (corona + wideGlow);
 
-    if (p.y >= -0.002) {
         float2 starCoord = float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH);
         float starFade = ss(0.03, 0.24, tSky) * ss(0.98, 0.72, tSky);
         col += renderStarfield(starCoord, 0.30, uTime) * (starFade / max(1e-4, ss(0.03, 0.24, 0.30) * ss(0.56, 0.40, 0.30)))
@@ -605,8 +602,72 @@ float4 main(PSIn input) : SV_Target {
             col = lerp(col, discCol, discMask * (1.0 - sliceGap));
         }
 
-        // 3. Far Slow-Scrolling Megapolis Silhouette (0.055 / 0.105 speed)
         col = renderMegapolis(p, sunCenter, pxScale, col, uTime, uGridTime);
+        return float4(saturate(col), 1.0);
+    }
+
+    // Fast highway floor coordinates (left-to-right drive => worldX shifts LEFT at speed 1.65)
+    float speedRoad = 1.65;
+    float yFloorRaw = max(0.0, -p.y);
+    float roadDepth = 0.25 / (0.09 + yFloorRaw);
+    float roadX = p.x * roadDepth + uGridTime * speedRoad;
+    float2 roadCoord = float2(roadX * 1.25, roadDepth * 3.2);
+    float2 roadDeriv = max(float2(0.0008, 0.0008), fwidth(roadCoord));
+
+    float3 col = float3(0.0, 0.0, 0.0);
+
+    if (p.y >= -0.002) {
+        if (uLayerMode >= 1.5) {
+            col = bgCacheTex.SampleLevel(linearClamp, input.uv, 0).rgb;
+        } else {
+            // 1. Deep Synthwave Twilight Sky & Sunset Haze
+            float3 skyTop = float3(0.0431, 0.0275, 0.0941);
+            float3 skyMid = float3(0.098, 0.039, 0.215);
+            float3 skyHor = float3(0.310, 0.062, 0.310);
+            float tSky = clamp((glUv.y - horY) / (1.0 - horY), 0.0, 1.0);
+            col = lerp(skyHor, skyMid, ss(0.0, 0.38, tSky));
+            col = lerp(col, skyTop, ss(0.28, 0.92, tSky));
+
+            float aurora = sin(p.x * 2.8 + uTime * 0.22) * cos(p.y * 7.2 - uTime * 0.15);
+            col += float3(0.045, 0.012, 0.075) * max(0.0, aurora) * (1.0 - tSky);
+
+            // 2. Retro Sliced Outrun Sun + Breathing Corona
+            float2 pSun = p - sunCenter;
+            float sunR = 0.210;
+            float sunDist = length(pSun);
+            float sunBreath = 1.0 + 0.045 * sin(uTime * 1.35);
+
+            float corona = exp(-max(0.0, sunDist - sunR) * 8.5) * 0.65 * sunBreath;
+            float wideGlow = exp(-length(pSun * float2(0.75, 1.40)) * 2.6) * 0.44;
+            col += float3(1.0, 0.16, 0.52) * (corona + wideGlow);
+
+            float2 starCoord = float2((glUv.x - 0.5) * aspect * viewH, glUv.y * viewH);
+            float starFade = ss(0.03, 0.24, tSky) * ss(0.98, 0.72, tSky);
+            col += renderStarfield(starCoord, 0.30, uTime) * (starFade / max(1e-4, ss(0.03, 0.24, 0.30) * ss(0.56, 0.40, 0.30)))
+                * ss(sunR * 0.95, sunR * 1.45, sunDist);
+
+            float discMask = (1.0 - ss(sunR - pxScale * 1.5, sunR + pxScale * 1.5, sunDist))
+                * ss(-pxScale, pxScale * 1.5, p.y);
+            if (discMask > 0.001) {
+                float hNorm = clamp((pSun.y + sunR) / (2.0 * sunR), 0.0, 1.0);
+                float3 sunTopCol = float3(1.0, 0.91, 0.37);
+                float3 sunMidCol = float3(1.0, 0.42, 0.26);
+                float3 sunBotCol = float3(1.0, 0.165, 0.52);
+                float3 discCol = lerp(sunBotCol, sunMidCol, ss(0.08, 0.52, hNorm));
+                discCol = lerp(discCol, sunTopCol, ss(0.45, 0.92, hNorm));
+
+                float visH = clamp((hNorm - 0.14) / 0.56, 0.0, 1.0);
+                float slicePhase = frac(visH * 5.6 + uTime * 0.28);
+                float sliceThickness = lerp(0.42, 0.04, visH);
+                float sliceGap = ss(sliceThickness + 0.04, sliceThickness - 0.015, slicePhase)
+                    * step(visH, 0.96)
+                    * ss(0.96, 0.80, visH);
+                col = lerp(col, discCol, discMask * (1.0 - sliceGap));
+            }
+
+            // 3. Far Slow-Scrolling Megapolis Silhouette (0.055 / 0.105 speed)
+            col = renderMegapolis(p, sunCenter, pxScale, col, uTime, uGridTime);
+        }
 
         // 4. Faster Midground Palms & Cyber Streetlights (0.58 speed, 5-10x faster than city; skip upper sky where p.y > 0.36)
         if (p.y < 0.36) {
