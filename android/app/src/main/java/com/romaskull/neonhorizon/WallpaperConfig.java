@@ -196,13 +196,13 @@ public final class WallpaperConfig {
                     def.optString("scene", "neon_horizon"),
                     def.optBoolean("enabled", true),
                     def.optBoolean("animateBg", true),
-                    def.optString("preset", "vhs"),
+                    def.optString("preset", "soft"),
                     def.optInt("curvature", 40),
-                    def.optInt("scanlines", 52),
-                    def.optInt("bloom", 36),
-                    def.optInt("vhs", 75),
-                    def.optInt("sweep", 60),
-                    def.optInt("vignette", 48),
+                    def.optInt("scanlines", 10),
+                    def.optInt("bloom", 22),
+                    def.optInt("vhs", 30),
+                    def.optInt("sweep", 25),
+                    def.optInt("vignette", 18),
                     def.optBoolean("animate", true),
                     def.optInt("gridSpeed", 50),
                     def.optInt("targetFps", 24),
@@ -222,15 +222,15 @@ public final class WallpaperConfig {
         scenes.add(new SceneDefinition("outrun_cycle", "Outrun Cycle", "outrun_cycle.frag"));
 
         List<WallpaperPreset> presets = new ArrayList<>();
-        presets.add(new WallpaperPreset("soft", "Soft CRT", 14, 28, 32, 22, 35, 35, true));
+        presets.add(new WallpaperPreset("soft", "Soft CRT", 40, 10, 22, 30, 25, 18, true));
         presets.add(new WallpaperPreset("outrun", "Outrun 84", 24, 45, 58, 38, 55, 55, true));
         presets.add(new WallpaperPreset("vhs", "VHS Tape", 40, 52, 36, 75, 60, 48, true));
         presets.add(new WallpaperPreset("minimal", "Minimal", 0, 18, 22, 8, 0, 18, false));
 
         return new WallpaperConfig(
                 scenes, presets,
-                "neon_horizon", true, true, "vhs",
-                40, 52, 36, 75, 60, 48,
+                "neon_horizon", true, true, "soft",
+                40, 10, 22, 30, 25, 18,
                 true, 50, 24, 60, true);
     }
 

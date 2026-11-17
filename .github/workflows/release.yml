@@ -11,7 +11,7 @@ on:
       tag:
         description: 'Release tag (e.g. v1.4.0, android-v1.0.0, windows-v1.3.1)'
         required: true
-        default: 'v1.4.0'
+        default: 'v1.4.1'
       platforms:
         description: 'Platforms to build'
         type: choice
@@ -318,6 +318,7 @@ jobs:
               parts.extend([
                   '### Windows',
                   '- **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.',
+                  '- **Обновлённый пресет по умолчанию (`Soft CRT`):** кривизна `40%`, сканлайны `10%`, Bloom `22%`, VHS `30%`, развёртка `25%`, виньетка `18%`, анимация включена.',
                   '- **Оптимизированный рендер:** кэш фонового слоя (`BgCache`), даунсэмплированный Bloom (`1/9` сцены) и одновыборочный CRT/VHS-проход при нативном разрешении.',
                   f'- **Файлы:** `NeonHorizonWallpaper-windows.exe` или `NeonHorizonWallpaper-v{ver}-windows.zip` (SHA-256 в `checksums-windows-sha256.txt`).',
                   '',
@@ -327,6 +328,7 @@ jobs:
               parts.extend([
                   '### Android (API 24+ / Android 7.0+)',
                   '- **4 процедурные сцены:** **Neon Horizon**, **Miami Sunset Drive**, **Light Cycle** и **Outrun Cycle**.',
+                  '- **Обновлённый пресет по умолчанию (`Soft CRT`):** кривизна `40%`, сканлайны `10%`, Bloom `22%`, VHS `30%`, развёртка `25%`, виньетка `18%`, анимация включена.',
                   '- **Оптимизированный рендер:** кэш фонового слоя (`BgCache`), даунсэмплированный Bloom (`1/9` сцены) и одновыборочный CRT/VHS-проход.',
                   '- **Настройки в реальном времени:** живое превью, 4 пресета, ползунки эффектов, лимит FPS (`24`/`30`/`60`/`120`/`Display VSync`) и автообновление через GitHub Releases.',
                   f'- **Файлы:** `NeonHorizonWallpaper-android.apk` или `NeonHorizonWallpaper-v{ver}-android.apk` (SHA-256 в `checksums-android-sha256.txt`).',

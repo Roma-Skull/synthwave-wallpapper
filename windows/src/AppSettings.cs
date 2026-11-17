@@ -54,13 +54,13 @@ namespace NeonHorizonWallpaper
             Scene = "neon_horizon";
             Enabled = true;
             AnimateBg = true;
-            Preset = "vhs";
+            Preset = "soft";
             Curvature = 40;
-            Scanlines = 52;
-            Bloom = 36;
-            Vhs = 75;
-            Sweep = 60;
-            Vignette = 48;
+            Scanlines = 10;
+            Bloom = 22;
+            Vhs = 30;
+            Sweep = 25;
+            Vignette = 18;
             Animate = true;
             GridSpeed = 50;
             TargetFps = 24;
@@ -185,12 +185,12 @@ namespace NeonHorizonWallpaper
             {
                 Id = "soft",
                 DisplayName = "Soft CRT",
-                Curvature = 14,
-                Scanlines = 28,
-                Bloom = 32,
-                Vhs = 22,
-                Sweep = 35,
-                Vignette = 35,
+                Curvature = 40,
+                Scanlines = 10,
+                Bloom = 22,
+                Vhs = 30,
+                Sweep = 25,
+                Vignette = 18,
                 Animate = true
             },
             new WallpaperPreset
